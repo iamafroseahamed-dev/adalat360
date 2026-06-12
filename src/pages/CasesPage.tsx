@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { fetchCases, createCase, updateCase, deleteCase } from '@/services/mockCaseService';
 import type { Case } from '@/types';
 import { Button } from '@/components/ui/button';

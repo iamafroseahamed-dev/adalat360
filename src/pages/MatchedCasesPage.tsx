@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { fetchMatches } from '@/services/mockCauseListService';
 import type { CauseListMatch } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

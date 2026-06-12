@@ -1,19 +1,10 @@
-/**
- * Mock Cause List Service
- *
- * Handles cause list fetching, storage, and matching logic.
- * Replace fetchCauseList with real eCourts API call when credentials are ready.
- */
-
 import type { CauseList, CauseListMatch } from '@/types';
 import { SAMPLE_CAUSE_LISTS } from '@/data/sampleData';
 import { fetchCases } from './mockCaseService';
 import { generateId } from '@/lib/utils';
 
-// In-memory cause list store
-let causeListStore: CauseList[] = [...SAMPLE_CAUSE_LISTS];
+const causeListStore: CauseList[] = [...SAMPLE_CAUSE_LISTS];
 
-// Per-org match store
 const matchStore: Map<string, CauseListMatch[]> = new Map();
 
 export async function fetchCauseList(): Promise<CauseList[]> {
@@ -26,13 +17,6 @@ export async function fetchMatches(orgId: string): Promise<CauseListMatch[]> {
   return matchStore.get(orgId) ?? [];
 }
 
-/**
- * Run daily cause list sync:
- * 1. Load sample cause list data
- * 2. Match against org's active cases
- * 3. Store match records (prevent duplicates)
- * 4. Return summary
- */
 export async function runDailySync(orgId: string): Promise<{
   causeListLoaded: number;
   matchesFound: number;
@@ -45,7 +29,6 @@ export async function runDailySync(orgId: string): Promise<{
 
   const existingMatches = matchStore.get(orgId) ?? [];
 
-  // Prevent duplicate matches for same case + same date
   const matchedKeys = new Set(
     existingMatches
       .filter(m => m.matched_on === today)
@@ -61,17 +44,14 @@ export async function runDailySync(orgId: string): Promise<{
       let matchType: CauseListMatch['match_type'] | null = null;
       let confidence = 0;
 
-      // Priority 1: Exact CNR match
       if (c.cnr_number && cl.cnr_number && c.cnr_number === cl.cnr_number) {
         matchType = 'cnr';
         confidence = 100;
       }
-      // Priority 2: Exact Case Number match
       else if (c.case_number && cl.case_number && c.case_number === cl.case_number) {
         matchType = 'case_number';
         confidence = 98;
       }
-      // Priority 3: Petitioner/Respondent fuzzy match
       else if (
         c.petitioner && cl.case_number &&
         c.petitioner.toLowerCase().includes(cl.case_number.split('/')[0]?.toLowerCase() ?? '')
@@ -108,9 +88,4 @@ export async function runDailySync(orgId: string): Promise<{
     causeListLoaded: causeListStore.filter(cl => cl.cause_date === today).length,
     matchesFound: newMatches.length,
   };
-}
-
-export function resetCauseListStore() {
-  matchStore.clear();
-  causeListStore = [...SAMPLE_CAUSE_LISTS];
 }

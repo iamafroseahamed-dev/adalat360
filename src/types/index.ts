@@ -1,5 +1,3 @@
-// ─── Domain Types ────────────────────────────────────────────────────────────
-
 export interface Organization {
   id: string;
   organization_name: string;
@@ -116,8 +114,6 @@ export interface CaseHearingHistory {
   created_at: string;
 }
 
-// ─── Auth Types ───────────────────────────────────────────────────────────────
-
 export interface AuthUser {
   id: string;
   email: string;
@@ -130,8 +126,6 @@ export interface LoginCredentials {
   password: string;
 }
 
-// ─── Dashboard Types ──────────────────────────────────────────────────────────
-
 export interface DashboardMetrics {
   totalActiveCases: number;
   todayListedCases: number;
@@ -140,8 +134,6 @@ export interface DashboardMetrics {
   failedAlerts: number;
   pendingAlerts: number;
 }
-
-// ─── Bulk Upload Types ────────────────────────────────────────────────────────
 
 export interface BulkUploadRow {
   rowNumber: number;
@@ -157,8 +149,6 @@ export interface BulkUploadResult {
   duplicates: number;
   rows: BulkUploadRow[];
 }
-
-// ─── Filter Types ─────────────────────────────────────────────────────────────
 
 export interface CaseFilters {
   search?: string;

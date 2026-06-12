@@ -1,31 +1,8 @@
-/**
- * Mock Notification Service
- *
- * PLACEHOLDER — Real integrations pending:
- *  - Twilio (WhatsApp + SMS)
- *  - SMTP (Email)
- *
- * When credentials are configured, replace sendNotification() with real API calls.
- */
-
 import type { Notification, NotificationType, NotificationStatus } from '@/types';
 import { fetchMatches } from './mockCauseListService';
 import { generateId } from '@/lib/utils';
 import { ORGANIZATIONS } from '@/data/sampleData';
 
-export interface NotificationConfig {
-  twilioAccountSid: string;    // Twilio Account SID placeholder
-  twilioAuthToken: string;     // Twilio Auth Token placeholder
-  twilioWhatsappNumber: string; // e.g. whatsapp:+14155238886
-  twilioSmsNumber: string;      // e.g. +14155238887
-  smtpHost: string;
-  smtpPort: number;
-  smtpUser: string;
-  smtpPassword: string;
-  smtpFrom: string;
-}
-
-// Per-org notification store
 const notificationStore: Map<string, Notification[]> = new Map();
 
 export async function fetchNotifications(orgId: string): Promise<Notification[]> {
@@ -33,11 +10,6 @@ export async function fetchNotifications(orgId: string): Promise<Notification[]>
   return notificationStore.get(orgId) ?? [];
 }
 
-/**
- * Generate mock notification records for all new matches.
- * 3 notifications per match: WhatsApp, SMS, Email.
- * Prevents duplicate notification logs.
- */
 export async function generateNotificationsForMatches(orgId: string): Promise<{
   generated: number;
   details: Notification[];
@@ -48,7 +20,6 @@ export async function generateNotificationsForMatches(orgId: string): Promise<{
   const today = new Date().toISOString().split('T')[0];
   const existing = notificationStore.get(orgId) ?? [];
 
-  // Prevent duplicates: track match+type combos already notified today
   const notifiedKeys = new Set(
     existing
       .filter(n => n.created_at.startsWith(today))
@@ -111,28 +82,3 @@ function buildNotificationMessage(
   return `${orgName}\n\nDear ${clientName},\n\nYour case has been listed today.\n\nCase No: ${caseNo}\nCourt: ${court}\nBench: ${bench}\nJudge: ${judge}\nCourt Hall: ${courtHall}\nSerial No: ${listingNo}\nDate: ${hearingDate}\nAdvocate: ${advocate}\n\nPlease contact our office for further instructions.\n\n${footer}`;
 }
 
-/**
- * Mock send — does NOT send real messages.
- * Returns simulated success/failure.
- */
-export async function sendNotification(
-  _type: NotificationType,
-  _recipient: string,
-  _message: string,
-  _config?: NotificationConfig,
-): Promise<{ success: boolean; response: string }> {
-  await new Promise(r => setTimeout(r, 300));
-  // Simulate 90% success rate in demo
-  const success = Math.random() > 0.1;
-  return {
-    success,
-    response: success ? 'Demo: Message simulated (not actually sent)' : 'Demo: Simulated failure',
-  };
-}
-
-export const NOTIFICATION_DEMO_NOTE =
-  'Notification integrations are currently in demo mode. Real credentials can be configured in Settings.';
-
-export function resetNotificationStore() {
-  notificationStore.clear();
-}

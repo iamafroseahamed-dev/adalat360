@@ -1,6 +1,6 @@
 import { Bell, Menu, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { useState } from 'react';
 import { runDailySync } from '@/services/mockCauseListService';
 import { generateNotificationsForMatches } from '@/services/mockNotificationService';

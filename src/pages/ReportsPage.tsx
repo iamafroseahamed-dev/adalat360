@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { fetchCases } from '@/services/mockCaseService';
 import { fetchMatches } from '@/services/mockCauseListService';
 import { fetchNotifications } from '@/services/mockNotificationService';

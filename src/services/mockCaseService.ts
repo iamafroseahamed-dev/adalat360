@@ -1,15 +1,7 @@
-/**
- * Mock Case Service
- *
- * Manages cases in-memory for demo mode.
- * Replace with Supabase queries when real backend is connected.
- */
-
 import type { Case, BulkUploadResult } from '@/types';
 import { getCasesForOrg } from '@/data/sampleData';
 import { generateId } from '@/lib/utils';
 
-// In-memory store per org (seeded with sample data)
 const caseStore: Map<string, Case[]> = new Map();
 
 function getStore(orgId: string): Case[] {
@@ -58,8 +50,6 @@ export async function deleteCase(orgId: string, id: string): Promise<void> {
   const idx = cases.findIndex(c => c.id === id);
   if (idx !== -1) cases[idx] = { ...cases[idx], active: false, updated_at: new Date().toISOString() };
 }
-
-// ─── Bulk Upload Processing ───────────────────────────────────────────────────
 
 const CNR_REGEX = /^[A-Z]{4}[0-9]{6}[0-9]{4}$/;
 const MOBILE_REGEX = /^[6-9][0-9]{9}$/;
@@ -125,8 +115,4 @@ export async function processBulkUpload(
   }
 
   return result;
-}
-
-export function resetCaseStore() {
-  caseStore.clear();
 }

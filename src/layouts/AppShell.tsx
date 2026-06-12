@@ -1,7 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -20,10 +20,6 @@ export function AppShell() {
   const title = Object.entries(PAGE_TITLES).find(([path]) =>
     location.pathname === path || location.pathname.startsWith(path + '/')
   )?.[1] ?? 'Legal Case Alert';
-
-  useEffect(() => {
-    setMobileSidebarOpen(false);
-  }, [location.pathname]);
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">

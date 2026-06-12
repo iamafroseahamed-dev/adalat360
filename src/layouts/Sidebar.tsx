@@ -4,7 +4,7 @@ import {
   Bell, BarChart3, Settings, Scale, LogOut, ChevronLeft, ChevronRight, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { useState } from 'react';
 
 const NAV_ITEMS = [
