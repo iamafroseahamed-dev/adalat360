@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { fetchCases, createCase, updateCase, deleteCase } from '@/services/mockCaseService';
+import { fetchCases, createCase, updateCase, deleteCase } from '@/services/cases';
 import type { Case } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -128,7 +128,7 @@ function CaseForm({
 }
 
 export default function CasesPage() {
-  const { user } = useAuth();
+  const { user, isDemo } = useAuth();
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -144,7 +144,7 @@ export default function CasesPage() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    try { setCases(await fetchCases(user.organization.id)); }
+    try { setCases(await fetchCases(user.organization.id, isDemo)); }
     finally { setLoading(false); }
   }, [user]);
 
@@ -152,9 +152,9 @@ export default function CasesPage() {
 
   const filtered = cases.filter(c => {
     const q = search.toLowerCase();
-    const matchSearch = !q || c.case_number.toLowerCase().includes(q) ||
-      c.cnr_number.toLowerCase().includes(q) || c.client_name.toLowerCase().includes(q) ||
-      c.advocate_name.toLowerCase().includes(q) || c.petitioner.toLowerCase().includes(q);
+    const matchSearch = !q || (c.case_number ?? '').toLowerCase().includes(q) ||
+      (c.cnr_number ?? '').toLowerCase().includes(q) || (c.client_name ?? '').toLowerCase().includes(q) ||
+      (c.advocate_name ?? '').toLowerCase().includes(q) || (c.petitioner ?? '').toLowerCase().includes(q);
     const matchCourt = !filterCourt || c.court_name === filterCourt;
     const matchBench = !filterBench || c.bench === filterBench;
     const matchActive = filterActive === 'all' ? true : filterActive === 'active' ? c.active : !c.active;
@@ -166,10 +166,10 @@ export default function CasesPage() {
     setSaving(true);
     try {
       if (dialogMode === 'add') {
-        await createCase(user.organization.id, data);
+        await createCase(user.organization.id, isDemo, data);
         toast.success('Case created successfully');
       } else if (dialogMode === 'edit' && selectedCase) {
-        await updateCase(user.organization.id, selectedCase.id, data);
+        await updateCase(user.organization.id, isDemo, selectedCase.id, data);
         toast.success('Case updated successfully');
       }
       setDialogMode(null);
@@ -184,7 +184,7 @@ export default function CasesPage() {
   const handleDeactivate = async () => {
     if (!user || !deactivateTarget) return;
     try {
-      await deleteCase(user.organization.id, deactivateTarget.id);
+      await deleteCase(user.organization.id, isDemo, deactivateTarget.id);
       toast.success('Case deactivated');
       setDeactivateTarget(null);
       await load();

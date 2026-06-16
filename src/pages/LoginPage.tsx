@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { toast } from 'sonner';
 
 const DEMO_ACCOUNTS = [
-  { email: 'admin@chennailegalsolutions.com', org: 'Chennai Legal Solutions' },
+  { email: 'admin@litigodemo.com', org: 'Litigo Demo Firm' },
   { email: 'admin@madurailegal.com', org: 'Madurai Legal Associates' },
   { email: 'admin@southlawassociates.com', org: 'South Law Associates' },
 ];
@@ -53,8 +53,8 @@ export default function LoginPage() {
           <div className="mb-2 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 shadow-lg sm:h-16 sm:w-16">
             <Scale className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white sm:text-3xl">Legal Case Alert</h1>
-          <p className="text-blue-200 text-sm">Court Cause List Management & Alert System</p>
+          <h1 className="text-2xl font-bold text-white sm:text-3xl">Litigo</h1>
+          <p className="text-blue-200 text-sm">Never miss a listed case again.</p>
         </div>
 
         {/* Login Card */}

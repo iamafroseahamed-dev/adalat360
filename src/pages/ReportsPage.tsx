@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { fetchCases } from '@/services/mockCaseService';
-import { fetchMatches } from '@/services/mockCauseListService';
-import { fetchNotifications } from '@/services/mockNotificationService';
+import { fetchCases } from '@/services/cases';
+import { fetchMatches } from '@/services/causeLists';
+import { fetchNotifications } from '@/services/notifications';
 import type { Case, CauseListMatch, Notification } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,7 @@ import * as XLSX from 'xlsx';
 type ReportType = 'cases' | 'matches' | 'notifications';
 
 export default function ReportsPage() {
-  const { user } = useAuth();
+  const { user, isDemo } = useAuth();
   const [reportType, setReportType] = useState<ReportType>('notifications');
   const [cases, setCases] = useState<Case[]>([]);
   const [matches, setMatches] = useState<CauseListMatch[]>([]);
@@ -39,9 +39,9 @@ export default function ReportsPage() {
     setLoading(true);
     try {
       const [c, m, n] = await Promise.all([
-        fetchCases(user.organization.id),
-        fetchMatches(user.organization.id),
-        fetchNotifications(user.organization.id),
+        fetchCases(user.organization.id, isDemo),
+        fetchMatches(user.organization.id, isDemo),
+        fetchNotifications(user.organization.id, isDemo),
       ]);
       setCases(c); setMatches(m); setNotifications(n);
     } finally { setLoading(false); }
@@ -51,9 +51,9 @@ export default function ReportsPage() {
 
   // Filtered data per report type
   const filteredCases = cases.filter(c => {
-    const matchCourt = !filterCourt || c.court_name.toLowerCase().includes(filterCourt.toLowerCase());
-    const matchAdv = !filterAdvocate || c.advocate_name.toLowerCase().includes(filterAdvocate.toLowerCase());
-    const matchClient = !filterClient || c.client_name.toLowerCase().includes(filterClient.toLowerCase());
+    const matchCourt = !filterCourt || (c.court_name ?? '').toLowerCase().includes(filterCourt.toLowerCase());
+    const matchAdv = !filterAdvocate || (c.advocate_name ?? '').toLowerCase().includes(filterAdvocate.toLowerCase());
+    const matchClient = !filterClient || (c.client_name ?? '').toLowerCase().includes(filterClient.toLowerCase());
     const matchDate = (!dateFrom || c.created_at >= dateFrom) && (!dateTo || c.created_at <= dateTo + 'T23:59:59');
     return matchCourt && matchAdv && matchClient && matchDate;
   });

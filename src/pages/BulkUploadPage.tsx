@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { processBulkUpload } from '@/services/mockCaseService';
+import { processBulkUpload } from '@/services/cases';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -54,7 +54,7 @@ function exportErrors(result: BulkUploadResult) {
 }
 
 export default function BulkUploadPage() {
-  const { user } = useAuth();
+  const { user, isDemo } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<BulkUploadResult | null>(null);
@@ -80,7 +80,7 @@ export default function BulkUploadPage() {
         return;
       }
 
-      const uploadResult = await processBulkUpload(user.organization.id, rawRows);
+      const uploadResult = await processBulkUpload(user.organization.id, isDemo, file.name, user.profile.full_name, rawRows);
       setResult(uploadResult);
 
       if (uploadResult.success > 0) {

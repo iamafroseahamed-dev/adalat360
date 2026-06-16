@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { fetchMatches } from '@/services/mockCauseListService';
+import { fetchMatches } from '@/services/causeLists';
 import type { CauseListMatch } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,7 +15,7 @@ function MatchTypeBadge({ type }: { type: CauseListMatch['match_type'] }) {
 }
 
 export default function MatchedCasesPage() {
-  const { user } = useAuth();
+  const { user, isDemo } = useAuth();
   const [matches, setMatches] = useState<CauseListMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -23,9 +23,9 @@ export default function MatchedCasesPage() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    try { setMatches(await fetchMatches(user.organization.id)); }
+    try { setMatches(await fetchMatches(user.organization.id, isDemo)); }
     finally { setLoading(false); }
-  }, [user]);
+  }, [user, isDemo]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -94,7 +94,7 @@ export default function MatchedCasesPage() {
                     <TableCell className="text-xs">{m.cause_list?.bench}</TableCell>
                     <TableCell className="text-xs max-w-[160px] truncate">{m.cause_list?.judge_name}</TableCell>
                     <TableCell className="text-xs font-medium">{m.cause_list?.court_no}</TableCell>
-                    <TableCell className="text-center font-semibold">{m.cause_list?.listing_no}</TableCell>
+                    <TableCell className="text-center font-semibold">{m.cause_list?.item_number ?? '—'}</TableCell>
                     <TableCell><MatchTypeBadge type={m.match_type} /></TableCell>
                     <TableCell>
                       <span className={`text-xs font-bold ${m.match_confidence >= 95 ? 'text-green-700' : m.match_confidence >= 80 ? 'text-amber-700' : 'text-red-700'}`}>

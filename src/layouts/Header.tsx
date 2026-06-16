@@ -2,8 +2,7 @@ import { Bell, Menu, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useState } from 'react';
-import { runDailySync } from '@/services/mockCauseListService';
-import { generateNotificationsForMatches } from '@/services/mockNotificationService';
+import { runDailySync } from '@/services/causeLists';
 import { toast } from 'sonner';
 
 interface HeaderProps {
@@ -12,22 +11,20 @@ interface HeaderProps {
 }
 
 export function Header({ title, onMenuClick }: HeaderProps) {
-  const { user } = useAuth();
+  const { user, isDemo } = useAuth();
   const [syncing, setSyncing] = useState(false);
 
   const handleSync = async () => {
     if (!user || syncing) return;
     setSyncing(true);
     try {
-      const syncResult = await runDailySync(user.organization.id);
-      const notifResult = await generateNotificationsForMatches(user.organization.id);
+      const result = await runDailySync(user.organization.id, isDemo);
       toast.success(
-        `Daily cause list sync completed successfully. ${syncResult.matchesFound} cases matched and ${notifResult.generated} notifications generated.`,
-        { duration: 6000 }
+        `Sync complete for ${result.date}. ${result.causeListLoaded} cause list records, ${result.matchesFound} cases matched, ${result.notificationsGenerated} notifications queued.`,
+        { duration: 7000 }
       );
     } catch (err) {
-      toast.error('Sync failed. Please try again.');
-      console.error(err);
+      toast.error('Sync failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setSyncing(false);
     }

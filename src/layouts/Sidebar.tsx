@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Briefcase, Upload, List, GitCompare,
-  Bell, BarChart3, Settings, Scale, LogOut, ChevronLeft, ChevronRight, X,
+  Bell, BarChart3, Settings, Scale, LogOut, ChevronLeft, ChevronRight, X, FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -12,7 +12,8 @@ const NAV_ITEMS = [
   { to: '/cases', label: 'Cases', icon: Briefcase },
   { to: '/bulk-upload', label: 'Bulk Upload', icon: Upload },
   { to: '/cause-list', label: 'Cause List', icon: List },
-  { to: '/matched-cases', label: 'Matched Cases', icon: GitCompare },
+  { to: '/matched-cases', label: "Today's Listings", icon: GitCompare },
+  { to: '/cause-list-report', label: 'Cause List Report', icon: FileText },
   { to: '/notifications', label: 'Notifications', icon: Bell },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -60,7 +61,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           {!collapsed && (
             <div className="overflow-hidden pr-8 lg:pr-0">
               <p className="truncate text-sm font-bold leading-tight">{user?.organization.organization_name}</p>
-              <p className="truncate text-xs text-sidebar-foreground/60">Legal Alert System</p>
+              <p className="truncate text-xs text-sidebar-foreground/60">Litigo · Legal-Tech SaaS</p>
             </div>
           )}
         </div>

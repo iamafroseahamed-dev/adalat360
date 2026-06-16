@@ -45,13 +45,17 @@ export interface CauseList {
   id: string;
   cause_date: string;
   court_name: string;
-  bench: string;
-  court_no: string;
-  judge_name: string;
+  bench: string | null;
+  court_no: string | null;
+  judge_name: string | null;
+  item_number: number | null;
   case_number: string;
-  cnr_number: string;
-  listing_no: number;
-  status: string;
+  cnr_number: string | null;
+  petitioner: string | null;
+  respondent: string | null;
+  section?: string | null;
+  district?: string | null;
+  status: string | null;
   raw_response?: object;
   created_at: string;
 }
@@ -66,6 +70,11 @@ export interface CauseListMatch {
   matched_on: string;
   alert_required: boolean;
   created_at: string;
+  prayer?: string | null;
+  last_hearing?: string | null;
+  posted_stage?: string | null;
+  counsel_name?: string | null;
+  raw_case_detail_response?: object;
   case?: Case;
   cause_list?: CauseList;
 }
@@ -128,11 +137,13 @@ export interface LoginCredentials {
 
 export interface DashboardMetrics {
   totalActiveCases: number;
-  todayListedCases: number;
+  totalCauseListToday: number;
   matchedCasesToday: number;
+  unmatchedCasesToday: number;
   alertsGeneratedToday: number;
   failedAlerts: number;
   pendingAlerts: number;
+  upcomingHearings: number;
 }
 
 export interface BulkUploadRow {

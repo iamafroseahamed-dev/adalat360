@@ -50,7 +50,7 @@ export async function generateNotificationsForMatches(orgId: string): Promise<{
         : type === 'whatsapp' ? c.client_whatsapp
         : c.client_mobile;
 
-      const message = buildNotificationMessage(orgName, c.client_name, c.case_number, c.court_name, c.bench, cl.judge_name, cl.court_no, String(cl.listing_no), cl.cause_date, c.advocate_name, orgName);
+      const message = buildNotificationMessage(orgName, c.client_name ?? '', c.case_number, c.court_name ?? '', c.bench ?? '', cl.judge_name ?? '', cl.court_no ?? '', String(cl.item_number ?? ''), cl.cause_date, c.advocate_name ?? '', orgName);
 
       newNotifications.push({
         id: `notif-${generateId()}`,

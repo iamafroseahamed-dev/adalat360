@@ -1,13 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { fetchCases } from '@/services/mockCaseService';
-import { fetchCauseList, fetchMatches } from '@/services/mockCauseListService';
-import { fetchNotifications } from '@/services/mockNotificationService';
+import { fetchCases } from '@/services/cases';
+import { fetchCauseList, fetchTodayMatches } from '@/services/causeLists';
+import { fetchNotifications } from '@/services/notifications';
+import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { DashboardMetrics, CauseListMatch, Notification, UploadedFile } from '@/types';
-import { SAMPLE_UPLOADS } from '@/data/sampleData';
+import { isLiveMode } from '@/services/ecourtsService';
 import {
   Briefcase, List, GitCompare, Bell, XCircle, Clock,
   TrendingUp, CheckCircle2, AlertCircle
@@ -16,8 +17,7 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
-import { formatDate } from '@/lib/utils';
-
+import { formatDate, formatDateTime } from '@/lib/utils';
 
 
 function MetricCard({
@@ -50,17 +50,21 @@ function NotifStatusBadge({ status }: { status: string }) {
 }
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, isDemo } = useAuth();
   const [metrics, setMetrics] = useState<DashboardMetrics>({
-    totalActiveCases: 0, todayListedCases: 0, matchedCasesToday: 0,
-    alertsGeneratedToday: 0, failedAlerts: 0, pendingAlerts: 0,
+    totalActiveCases: 0,
+    totalCauseListToday: 0,
+    matchedCasesToday: 0,
+    unmatchedCasesToday: 0,
+    alertsGeneratedToday: 0,
+    failedAlerts: 0,
+    pendingAlerts: 0,
+    upcomingHearings: 0,
   });
   const [matches, setMatches] = useState<CauseListMatch[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [_uploads] = useState<UploadedFile[]>(SAMPLE_UPLOADS);
+  const [uploads, setUploads] = useState<UploadedFile[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Chart data
   const [courtData, setCourtData] = useState<{ name: string; value: number }[]>([]);
   const [notifStatusData, setNotifStatusData] = useState<{ name: string; value: number }[]>([]);
 
@@ -68,43 +72,52 @@ export default function DashboardPage() {
     if (!user) return;
     setLoading(true);
     try {
+      const today = new Date().toISOString().split('T')[0];
       const [cases, causeList, matchList, notifList] = await Promise.all([
-        fetchCases(user.organization.id),
-        fetchCauseList(),
-        fetchMatches(user.organization.id),
-        fetchNotifications(user.organization.id),
+        fetchCases(user.organization.id, isDemo),
+        fetchCauseList(isDemo, { date: today }),
+        fetchTodayMatches(user.organization.id, isDemo),
+        fetchNotifications(user.organization.id, isDemo),
       ]);
 
-      const today = new Date().toISOString().split('T')[0];
+      const uploadsData = isDemo ? null : await supabase
+        .from('uploaded_files')
+        .select('*')
+        .eq('organization_id', user.organization.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
       const activeCases = cases.filter(c => c.active);
-      const todayListed = causeList.filter(cl => cl.cause_date === today).length;
-      const todayMatches = matchList.filter(m => m.matched_on === today);
       const todayNotifs = notifList.filter(n => n.created_at.startsWith(today));
 
       setMetrics({
         totalActiveCases: activeCases.length,
-        todayListedCases: todayListed,
-        matchedCasesToday: todayMatches.length,
+        totalCauseListToday: causeList.length,
+        matchedCasesToday: matchList.length,
+        unmatchedCasesToday: Math.max(0, activeCases.length - matchList.length),
         alertsGeneratedToday: todayNotifs.filter(n => n.status === 'sent').length,
         failedAlerts: todayNotifs.filter(n => n.status === 'failed').length,
         pendingAlerts: todayNotifs.filter(n => n.status === 'pending').length,
+        upcomingHearings: 0,
       });
 
-      setMatches(todayMatches.slice(0, 10));
-      setNotifications(todayNotifs.slice(0, 10));
+      setMatches(matchList.slice(0, 8));
+      setNotifications(todayNotifs.slice(0, 8));
+      setUploads(isDemo ? [] : (uploadsData?.data ?? []));
 
-      // Court distribution
       const courtMap: Record<string, number> = {};
-      activeCases.forEach(c => { courtMap[c.court_name] = (courtMap[c.court_name] ?? 0) + 1; });
-      setCourtData(Object.entries(courtMap).map(([name, value]) => ({ name: name.length > 20 ? name.slice(0, 18) + '…' : name, value })));
+      activeCases.forEach(c => {
+        if (c.court_name) {
+          const name = c.court_name.length > 20 ? c.court_name.slice(0, 18) + '…' : c.court_name;
+          courtMap[name] = (courtMap[name] ?? 0) + 1;
+        }
+      });
+      setCourtData(Object.entries(courtMap).map(([name, value]) => ({ name, value })));
 
-      // Notification status distribution
-      const statusMap: Record<string, number> = { sent: 0, failed: 0, pending: 0 };
-      todayNotifs.forEach(n => { statusMap[n.status] = (statusMap[n.status] ?? 0) + 1; });
       setNotifStatusData([
-        { name: 'Sent', value: statusMap.sent },
-        { name: 'Failed', value: statusMap.failed },
-        { name: 'Pending', value: statusMap.pending },
+        { name: 'Sent', value: todayNotifs.filter(n => n.status === 'sent').length },
+        { name: 'Failed', value: todayNotifs.filter(n => n.status === 'failed').length },
+        { name: 'Pending', value: todayNotifs.filter(n => n.status === 'pending').length },
       ]);
     } finally {
       setLoading(false);
@@ -126,22 +139,27 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Demo Banner */}
-      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 sm:px-4 sm:text-sm">
+      {/* Mode Banner */}
+      <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs sm:px-4 sm:text-sm ${isLiveMode() ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
         <AlertCircle className="w-4 h-4 flex-shrink-0" />
         <span>
-          <strong>Demo Mode</strong> — Using sample data. Click <strong>Run Daily Sync</strong> in the header to simulate eCourts sync.
+          {isLiveMode()
+            ? <><strong>Live Mode</strong> — Connected to eCourts India. Data is real-time.</>
+            : <><strong>Demo Mode</strong> — Using seeded sample data. Click <strong>Run Daily Sync</strong> to populate today's listings.</>
+          }
         </span>
       </div>
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <MetricCard title="Active Cases" value={metrics.totalActiveCases} icon={Briefcase} color="text-blue-600" subtitle="Total registered" />
-        <MetricCard title="Today's Listed" value={metrics.todayListedCases} icon={List} color="text-indigo-600" subtitle="In cause list" />
-        <MetricCard title="Matched Today" value={metrics.matchedCasesToday} icon={GitCompare} color="text-emerald-600" subtitle="Cases matched" />
+        <MetricCard title="Today's Cause List" value={metrics.totalCauseListToday} icon={List} color="text-indigo-600" subtitle="Court records" />
+        <MetricCard title="Matched Today" value={metrics.matchedCasesToday} icon={GitCompare} color="text-emerald-600" subtitle="Cases found" />
         <MetricCard title="Alerts Sent" value={metrics.alertsGeneratedToday} icon={Bell} color="text-green-600" subtitle="Delivered" />
         <MetricCard title="Failed Alerts" value={metrics.failedAlerts} icon={XCircle} color="text-red-600" subtitle="Need retry" />
-        <MetricCard title="Pending" value={metrics.pendingAlerts} icon={Clock} color="text-amber-600" subtitle="Awaiting delivery" />
+        <MetricCard title="Pending Alerts" value={metrics.pendingAlerts} icon={Clock} color="text-amber-600" subtitle="Queued" />
+        <MetricCard title="Unmatched Cases" value={metrics.unmatchedCasesToday} icon={AlertCircle} color="text-orange-600" subtitle="Not listed today" />
+        <MetricCard title="Upcoming Hearings" value={metrics.upcomingHearings} icon={CheckCircle2} color="text-purple-600" subtitle="Next 7 days" />
       </div>
 
       {/* Charts Row */}
@@ -274,7 +292,7 @@ export default function DashboardPage() {
                       </TableCell>
                       <TableCell className="text-xs max-w-[120px] truncate">{n.recipient}</TableCell>
                       <TableCell><NotifStatusBadge status={n.status} /></TableCell>
-                      <TableCell className="text-xs">{n.sent_time ? formatDate(n.sent_time) : '—'}</TableCell>
+                      <TableCell className="text-xs">{n.sent_time ? formatDateTime(n.sent_time) : '—'}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -286,36 +304,48 @@ export default function DashboardPage() {
 
       {/* Recent Uploads */}
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-2">
           <CardTitle className="text-base">Recent Uploads</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <Table className="min-w-[760px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>File Name</TableHead>
-                <TableHead>Uploaded By</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>Success</TableHead>
-                <TableHead>Failed</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Date</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {SAMPLE_UPLOADS.map(u => (
-                <TableRow key={u.id}>
-                  <TableCell className="text-sm font-medium">{u.file_name}</TableCell>
-                  <TableCell className="text-sm">{u.uploaded_by}</TableCell>
-                  <TableCell className="text-sm">{u.total_records}</TableCell>
-                  <TableCell className="text-sm text-green-600 font-medium">{u.success_count}</TableCell>
-                  <TableCell className="text-sm text-red-600 font-medium">{u.failed_count}</TableCell>
-                  <TableCell><Badge variant="success" className="text-xs">Completed</Badge></TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{formatDate(u.created_at)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          {uploads.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+              <p className="text-sm">No uploads yet.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table className="min-w-[640px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>File Name</TableHead>
+                    <TableHead>Uploaded By</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead>Success</TableHead>
+                    <TableHead>Failed</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {uploads.map(u => (
+                    <TableRow key={u.id}>
+                      <TableCell className="text-sm font-medium">{u.file_name}</TableCell>
+                      <TableCell className="text-sm">{u.uploaded_by}</TableCell>
+                      <TableCell className="text-sm">{u.total_records}</TableCell>
+                      <TableCell className="text-sm text-green-600 font-medium">{u.success_count}</TableCell>
+                      <TableCell className="text-sm text-red-600 font-medium">{u.failed_count}</TableCell>
+                      <TableCell>
+                        <Badge variant={u.status === 'completed' ? 'success' : u.status === 'failed' ? 'destructive' : 'warning'} className="text-xs capitalize">
+                          {u.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{formatDate(u.created_at)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -7,8 +7,9 @@ const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/cases': 'Case Management',
   '/bulk-upload': 'Bulk Upload',
-  '/cause-list': 'Cause List',
-  '/matched-cases': 'Matched Cases',
+  '/cause-list': 'Daily Cause List',
+  '/matched-cases': "Today's Listings",
+  '/cause-list-report': 'Cause List Report',
   '/notifications': 'Notifications',
   '/reports': 'Reports',
   '/settings': 'Settings',
@@ -19,7 +20,7 @@ export function AppShell() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const title = Object.entries(PAGE_TITLES).find(([path]) =>
     location.pathname === path || location.pathname.startsWith(path + '/')
-  )?.[1] ?? 'Legal Case Alert';
+  )?.[1] ?? 'Litigo';
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">

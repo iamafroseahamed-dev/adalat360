@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { fetchNotifications } from '@/services/mockNotificationService';
+import { fetchNotifications } from '@/services/notifications';
 import type { Notification, NotificationType, NotificationStatus } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +24,7 @@ function StatusBadge({ status }: { status: NotificationStatus }) {
 }
 
 export default function NotificationsPage() {
-  const { user } = useAuth();
+  const { user, isDemo } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -34,7 +34,7 @@ export default function NotificationsPage() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    try { setNotifications(await fetchNotifications(user.organization.id)); }
+    try { setNotifications(await fetchNotifications(user.organization.id, isDemo)); }
     finally { setLoading(false); }
   }, [user]);
 

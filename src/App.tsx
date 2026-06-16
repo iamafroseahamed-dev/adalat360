@@ -8,7 +8,8 @@ import DashboardPage from "@/pages/DashboardPage";
 import CasesPage from "@/pages/CasesPage";
 import BulkUploadPage from "@/pages/BulkUploadPage";
 import CauseListPage from "@/pages/CauseListPage";
-import MatchedCasesPage from "@/pages/MatchedCasesPage";
+import TodaysListingsPage from "@/pages/TodaysListingsPage";
+import MatchedCauseListReportPage from "@/pages/MatchedCauseListReportPage";
 import NotificationsPage from "@/pages/NotificationsPage";
 import ReportsPage from "@/pages/ReportsPage";
 import SettingsPage from "@/pages/SettingsPage";
@@ -30,7 +31,8 @@ export default function App() {
               <Route path="/cases" element={<CasesPage />} />
               <Route path="/bulk-upload" element={<BulkUploadPage />} />
               <Route path="/cause-list" element={<CauseListPage />} />
-              <Route path="/matched-cases" element={<MatchedCasesPage />} />
+              <Route path="/matched-cases" element={<TodaysListingsPage />} />
+              <Route path="/cause-list-report" element={<MatchedCauseListReportPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/settings" element={<SettingsPage />} />

@@ -218,6 +218,6 @@ CREATE POLICY "hearing_insert" ON case_hearing_history FOR INSERT WITH CHECK (or
 
 -- INSERT INTO organizations (organization_name, contact_person, email, mobile)
 -- VALUES
---   ('Chennai Legal Solutions', 'Rajesh Kumar', 'admin@chennailegalsolutions.com', '9876543210'),
+--   ('Litigo Demo Firm', 'Rajesh Kumar', 'admin@litigodemo.com', '9876543210'),
 --   ('Madurai Legal Associates', 'Suresh Babu', 'admin@madurailegal.com', '9876543211'),
 --   ('South Law Associates', 'Priya Sharma', 'admin@southlawassociates.com', '9876543212');

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchCauseList } from '@/services/mockCauseListService';
+import { useAuth } from '@/hooks/useAuth';
+import { fetchCauseList } from '@/services/causeLists';
 import type { CauseList } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +31,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function CauseListPage() {
+  const { isDemo } = useAuth();
   const [causeList, setCauseList] = useState<CauseList[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -42,20 +44,21 @@ export default function CauseListPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setCauseList(await fetchCauseList()); }
+    try { setCauseList(await fetchCauseList(isDemo, {})); }
     finally { setLoading(false); }
-  }, []);
+  }, [isDemo]);
 
   useEffect(() => { load(); }, [load]);
 
   const filtered = causeList.filter(cl => {
     const q = search.toLowerCase();
     const matchSearch = !q || cl.case_number.toLowerCase().includes(q) ||
-      cl.cnr_number.toLowerCase().includes(q) || cl.judge_name.toLowerCase().includes(q);
+      (cl.cnr_number ?? '').toLowerCase().includes(q) ||
+      (cl.judge_name ?? '').toLowerCase().includes(q);
     const matchDate = !filterDate || cl.cause_date === filterDate;
     const matchCourt = !filterCourt || cl.court_name === filterCourt;
     const matchBench = !filterBench || cl.bench === filterBench;
-    const matchJudge = !filterJudge || cl.judge_name.toLowerCase().includes(filterJudge.toLowerCase());
+    const matchJudge = !filterJudge || (cl.judge_name ?? '').toLowerCase().includes(filterJudge.toLowerCase());
     const matchStatus = !filterStatus || cl.status === filterStatus;
     return matchSearch && matchDate && matchCourt && matchBench && matchJudge && matchStatus;
   });
@@ -65,7 +68,7 @@ export default function CauseListPage() {
     setSearch(''); setFilterDate(''); setFilterCourt(''); setFilterBench(''); setFilterJudge(''); setFilterStatus('');
   };
 
-  const judges = [...new Set(causeList.map(cl => cl.judge_name))].sort();
+  const judges = [...new Set(causeList.map(cl => cl.judge_name).filter(Boolean))].sort() as string[];
 
   return (
     <div className="space-y-4">
@@ -182,10 +185,10 @@ export default function CauseListPage() {
                     <TableCell className="text-xs">{cl.bench}</TableCell>
                     <TableCell className="text-xs font-medium">{cl.court_no}</TableCell>
                     <TableCell className="text-xs max-w-[180px] truncate">{cl.judge_name}</TableCell>
-                    <TableCell className="text-center font-semibold text-sm">{cl.listing_no}</TableCell>
+                    <TableCell className="text-center font-semibold text-sm">{cl.item_number ?? '—'}</TableCell>
                     <TableCell className="font-mono text-xs">{cl.case_number}</TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">{cl.cnr_number || '—'}</TableCell>
-                    <TableCell><StatusBadge status={cl.status} /></TableCell>
+                    <TableCell><StatusBadge status={cl.status ?? ''} /></TableCell>
                   </TableRow>
                 ))}
               </TableBody>

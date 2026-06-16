@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,7 +49,24 @@ export default function SettingsPage() {
     `{OrgName}\n\nDear {ClientName},\n\nYour case has been listed today.\n\nCase No: {CaseNumber}\nCourt: {CourtName}\nBench: {Bench}\nJudge: {JudgeName}\nCourt Hall: {CourtNo}\nSerial No: {ListingNo}\nDate: {HearingDate}\nAdvocate: {AdvocateName}\n\nPlease contact our office for further instructions.\n\n{OrgName}`
   );
 
-  const saveOrg = () => toast.success('Organization profile saved (demo).');
+  const saveOrg = async () => {
+    if (!user) return;
+    const { error } = await supabase
+      .from('organizations')
+      .update({
+        organization_name: orgName,
+        contact_person: contactPerson,
+        email: orgEmail,
+        mobile: orgMobile,
+      })
+      .eq('id', user.organization.id);
+
+    if (error) {
+      toast.error('Failed to save: ' + error.message);
+    } else {
+      toast.success('Organization profile saved.');
+    }
+  };
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -193,7 +211,7 @@ export default function SettingsPage() {
                 <PlaceholderInput label="SMTP Username" placeholder="your@email.com" />
                 <PlaceholderInput label="SMTP Password" type="password" placeholder="••••••••" />
                 <PlaceholderInput label="From Address" placeholder="alerts@yourfirm.com" />
-                <PlaceholderInput label="From Name" placeholder="Chennai Legal Solutions" />
+                <PlaceholderInput label="From Name" placeholder="Litigo" />
               </div>
               <Button disabled variant="outline">Save SMTP Config (Available Soon)</Button>
             </CardContent>

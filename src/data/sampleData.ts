@@ -5,18 +5,24 @@ import type {
 
 // ─── Organizations ────────────────────────────────────────────────────────────
 
+export const ORG_IDS = {
+  org1: '11111111-1111-1111-1111-111111111111',
+  org2: '22222222-2222-2222-2222-222222222222',
+  org3: '33333333-3333-3333-3333-333333333333',
+} as const;
+
 export const ORGANIZATIONS: Organization[] = [
   {
-    id: 'org-001',
-    organization_name: 'Chennai Legal Solutions',
+    id: ORG_IDS.org1,
+    organization_name: 'Litigo Demo Firm',
     contact_person: 'Rajesh Kumar',
-    email: 'admin@chennailegalsolutions.com',
+    email: 'admin@litigodemo.com',
     mobile: '9876543210',
     active: true,
     created_at: '2024-01-01T00:00:00Z',
   },
   {
-    id: 'org-002',
+    id: ORG_IDS.org2,
     organization_name: 'Madurai Legal Associates',
     contact_person: 'Suresh Babu',
     email: 'admin@madurailegal.com',
@@ -25,7 +31,7 @@ export const ORGANIZATIONS: Organization[] = [
     created_at: '2024-01-02T00:00:00Z',
   },
   {
-    id: 'org-003',
+    id: ORG_IDS.org3,
     organization_name: 'South Law Associates',
     contact_person: 'Priya Sharma',
     email: 'admin@southlawassociates.com',
@@ -38,29 +44,35 @@ export const ORGANIZATIONS: Organization[] = [
 // ─── Demo Accounts ────────────────────────────────────────────────────────────
 
 export const DEMO_ACCOUNTS: Record<string, { password: string; orgId: string; profile: Profile }> = {
-  'admin@chennailegalsolutions.com': {
+  'admin@litigodemo.com': {
     password: 'Demo@123',
-    orgId: 'org-001',
+    orgId: ORG_IDS.org1,
     profile: {
-      id: 'prof-001', user_id: 'user-001', organization_id: 'org-001',
-      full_name: 'Rajesh Kumar', email: 'admin@chennailegalsolutions.com',
+      id: 'aaaaaaaa-0001-0001-0001-000000000001',
+      user_id: 'aaaaaaaa-0000-0000-0000-000000000001',
+      organization_id: ORG_IDS.org1,
+      full_name: 'Rajesh Kumar', email: 'admin@litigodemo.com',
       role: 'admin', active: true, created_at: '2024-01-01T00:00:00Z',
     },
   },
   'admin@madurailegal.com': {
     password: 'Demo@123',
-    orgId: 'org-002',
+    orgId: ORG_IDS.org2,
     profile: {
-      id: 'prof-002', user_id: 'user-002', organization_id: 'org-002',
+      id: 'aaaaaaaa-0001-0001-0001-000000000002',
+      user_id: 'aaaaaaaa-0000-0000-0000-000000000002',
+      organization_id: ORG_IDS.org2,
       full_name: 'Suresh Babu', email: 'admin@madurailegal.com',
       role: 'admin', active: true, created_at: '2024-01-02T00:00:00Z',
     },
   },
   'admin@southlawassociates.com': {
     password: 'Demo@123',
-    orgId: 'org-003',
+    orgId: ORG_IDS.org3,
     profile: {
-      id: 'prof-003', user_id: 'user-003', organization_id: 'org-003',
+      id: 'aaaaaaaa-0001-0001-0001-000000000003',
+      user_id: 'aaaaaaaa-0000-0000-0000-000000000003',
+      organization_id: ORG_IDS.org3,
       full_name: 'Priya Sharma', email: 'admin@southlawassociates.com',
       role: 'admin', active: true, created_at: '2024-01-03T00:00:00Z',
     },
@@ -148,6 +160,8 @@ const COURTS = [
 
 const CASE_TYPES = ['CS', 'WP', 'CRP', 'SA', 'OSA', 'WA', 'CP', 'MP'];
 const CASE_STATUSES = ['Adjourned', 'Listed', 'Part Heard', 'Orders Reserved', 'Pending'];
+const SECTIONS = ['Writ Petitions', 'Original Side Appeals', 'Civil Misc. Appeals', 'Civil Suits', 'Appeal Suits', 'Special Original Jurisdiction', 'Criminal'];
+const DISTRICTS = ['Chennai', 'Coimbatore', 'Madurai', 'Salem', 'Trichy', 'Tirunelveli', 'Vellore', 'Erode'];
 
 function randomCourt() { return COURTS[Math.floor(Math.random() * COURTS.length)]; }
 function randomItem<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -196,13 +210,13 @@ function generateCases(orgId: string, startIdx: number): Case[] {
   return cases;
 }
 
-export const SAMPLE_CASES_ORG1 = generateCases('org-001', 0);
-export const SAMPLE_CASES_ORG2 = generateCases('org-002', 100);
-export const SAMPLE_CASES_ORG3 = generateCases('org-003', 200);
+export const SAMPLE_CASES_ORG1 = generateCases(ORG_IDS.org1, 0);
+export const SAMPLE_CASES_ORG2 = generateCases(ORG_IDS.org2, 100);
+export const SAMPLE_CASES_ORG3 = generateCases(ORG_IDS.org3, 200);
 
 export function getCasesForOrg(orgId: string): Case[] {
-  if (orgId === 'org-001') return SAMPLE_CASES_ORG1;
-  if (orgId === 'org-002') return SAMPLE_CASES_ORG2;
+  if (orgId === ORG_IDS.org1) return SAMPLE_CASES_ORG1;
+  if (orgId === ORG_IDS.org2) return SAMPLE_CASES_ORG2;
   return SAMPLE_CASES_ORG3;
 }
 
@@ -218,9 +232,13 @@ export const SAMPLE_CAUSE_LISTS: CauseList[] = [
     bench: c.bench,
     court_no: `Court No. ${i + 1}`,
     judge_name: randomItem(COURTS.find(ct => ct.court === c.court_name)?.judges ?? ['Hon. Justice Unknown']),
+    item_number: i + 1,
     case_number: c.case_number,
     cnr_number: c.cnr_number,
-    listing_no: i + 1,
+    petitioner: c.petitioner,
+    respondent: c.respondent,
+    section: randomItem(SECTIONS),
+    district: randomItem(DISTRICTS),
     status: randomItem(CASE_STATUSES),
     created_at: new Date().toISOString(),
   })),
@@ -231,9 +249,13 @@ export const SAMPLE_CAUSE_LISTS: CauseList[] = [
     bench: c.bench,
     court_no: `Court No. ${i + 1}`,
     judge_name: randomItem(COURTS.find(ct => ct.court === c.court_name)?.judges ?? ['Hon. Justice Unknown']),
+    item_number: i + 1,
     case_number: c.case_number,
     cnr_number: c.cnr_number,
-    listing_no: i + 1,
+    petitioner: c.petitioner,
+    respondent: c.respondent,
+    section: randomItem(SECTIONS),
+    district: randomItem(DISTRICTS),
     status: randomItem(CASE_STATUSES),
     created_at: new Date().toISOString(),
   })),
@@ -244,9 +266,13 @@ export const SAMPLE_CAUSE_LISTS: CauseList[] = [
     bench: c.bench,
     court_no: `Court No. ${i + 1}`,
     judge_name: randomItem(COURTS.find(ct => ct.court === c.court_name)?.judges ?? ['Hon. Justice Unknown']),
+    item_number: i + 1,
     case_number: c.case_number,
     cnr_number: c.cnr_number,
-    listing_no: i + 1,
+    petitioner: c.petitioner,
+    respondent: c.respondent,
+    section: randomItem(SECTIONS),
+    district: randomItem(DISTRICTS),
     status: randomItem(CASE_STATUSES),
     created_at: new Date().toISOString(),
   })),
@@ -320,19 +346,19 @@ export function generateNotifications(orgId: string): Notification[] {
 function buildMessage(c: Case, cl: CauseList): string {
   const org = ORGANIZATIONS.find(o => o.id === c.organization_id);
   const orgName = org?.organization_name ?? 'Legal Solutions';
-  return `${orgName}\n\nDear ${c.client_name},\n\nYour case has been listed today.\n\nCase No: ${c.case_number}\nCourt: ${c.court_name}\nBench: ${c.bench}\nJudge: ${cl.judge_name}\nCourt Hall: ${cl.court_no}\nSerial No: ${cl.listing_no}\nDate: ${cl.cause_date}\nAdvocate: ${c.advocate_name}\n\nPlease contact our office for further instructions.\n\n${orgName}`;
+  return `${orgName}\n\nDear ${c.client_name},\n\nYour case has been listed today.\n\nCase No: ${c.case_number}\nCourt: ${c.court_name}\nBench: ${c.bench}\nJudge: ${cl.judge_name}\nCourt Hall: ${cl.court_no}\nSerial No: ${cl.item_number}\nDate: ${cl.cause_date}\nAdvocate: ${c.advocate_name}\n\nPlease contact our office for further instructions.\n\n${orgName}`;
 }
 
 // ─── Uploaded Files Sample ────────────────────────────────────────────────────
 
 export const SAMPLE_UPLOADS: UploadedFile[] = [
   {
-    id: 'upload-001', organization_id: 'org-001', file_name: 'cases_batch_jan2025.xlsx',
+    id: 'upload-001', organization_id: ORG_IDS.org1, file_name: 'cases_batch_jan2025.xlsx',
     uploaded_by: 'Rajesh Kumar', total_records: 45, success_count: 43, failed_count: 2,
     status: 'completed', created_at: '2025-01-15T10:00:00Z',
   },
   {
-    id: 'upload-002', organization_id: 'org-001', file_name: 'cases_batch_feb2025.xlsx',
+    id: 'upload-002', organization_id: ORG_IDS.org1, file_name: 'cases_batch_feb2025.xlsx',
     uploaded_by: 'Rajesh Kumar', total_records: 30, success_count: 30, failed_count: 0,
     status: 'completed', created_at: '2025-02-10T09:30:00Z',
   },
