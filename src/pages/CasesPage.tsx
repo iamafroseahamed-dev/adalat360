@@ -40,11 +40,11 @@ const EMPTY_FORM: FormData = {
 };
 
 interface Filters {
-  court: string; district: string; section: string;
+  district: string; section: string;
   cla_party_status: string; sensitivity: string;
   case_status: string; follow_up_status: string; active: string;
 }
-const EMPTY_FILTERS: Filters = { court: '', district: '', section: '', cla_party_status: '', sensitivity: '', case_status: '', follow_up_status: '', active: '' };
+const EMPTY_FILTERS: Filters = { district: '', section: '', cla_party_status: '', sensitivity: '', case_status: '', follow_up_status: '', active: '' };
 
 function fmtDate(iso: string | null) {
   if (!iso) return '—';
@@ -272,6 +272,7 @@ export default function CasesPage() {
     const { data, error: err } = await supabase
       .from('cases')
       .select('*')
+      .eq('court_name', 'Principal Bench of Madras High Court')
       .order('created_at', { ascending: false });
     if (err) { setError(err.message); setLoading(false); return; }
     setCases(data ?? []);
@@ -294,7 +295,6 @@ export default function CasesPage() {
         (c.client_name ?? '').toLowerCase().includes(q) ||
         (c.advocate_name ?? '').toLowerCase().includes(q);
       const matchFilters =
-        (!filters.court || c.court_name === filters.court) &&
         (!filters.district || (c.district ?? '').toLowerCase().includes(filters.district.toLowerCase())) &&
         (!filters.section || (c.section ?? '').toLowerCase().includes(filters.section.toLowerCase())) &&
         (!filters.cla_party_status || c.cla_party_status === filters.cla_party_status) &&
@@ -308,7 +308,6 @@ export default function CasesPage() {
 
   const hasFilters = search || Object.values(filters).some(Boolean);
   const clearFilters = () => { setSearch(''); setFilters(EMPTY_FILTERS); };
-  const distinctCourts = [...new Set(cases.map(c => c.court_name).filter(Boolean))] as string[];
 
   const handleSave = async (data: FormData) => {
     setSaving(true);
@@ -409,17 +408,7 @@ export default function CasesPage() {
 
       {showFilters && (
         <Card className="p-4">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
-            <div className="space-y-1">
-              <Label className="text-xs">Court</Label>
-              <Select value={filters.court || '__all__'} onValueChange={setFilter('court')}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">All</SelectItem>
-                  {distinctCourts.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
             <div className="space-y-1">
               <Label className="text-xs">District</Label>
               <Input className="h-8 text-xs" placeholder="Filter…" value={filters.district}
