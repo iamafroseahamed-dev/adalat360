@@ -493,6 +493,7 @@ function CaseDetailsModal({
   details,
   cnrNumber,
   onRetry,
+  localCase,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -501,12 +502,23 @@ function CaseDetailsModal({
   details: CaseDetailsResponse | null;
   cnrNumber: string | null;
   onRetry: () => void;
+  localCase: Case | null;
 }) {
   const tables = details?.tables ?? [];
   const links = details?.links ?? [];
   const summaryFields = details?.summary_fields ?? {};
   const { grouped } = useMemo(() => groupTablesBySection(tables), [tables]);
   const defaultOpen = ['case-summary', 'case-status', 'parties', 'hearing-history', 'orders', 'documents', 'scrutiny'];
+
+  // Prayer + additional fields from Litigo's own cases table (not returned by eCourts)
+  const prayerRows = useMemo(() => {
+    const rows: string[][] = [];
+    if (localCase?.prayer) rows.push(['Prayer', localCase.prayer]);
+    if (localCase?.subject_matter) rows.push(['Subject Matter', localCase.subject_matter]);
+    if (localCase?.last_hearing_update) rows.push(['Last Hearing Update', localCase.last_hearing_update]);
+    if (localCase?.nature_of_disposal) rows.push(['Nature of Disposal', localCase.nature_of_disposal]);
+    return rows;
+  }, [localCase]);
 
   const topFields = useMemo(() => ({
     cnr:         details?.cnr_number || cnrNumber || extractField(tables, summaryFields, 'CNR Number', 'CNR'),
@@ -531,6 +543,29 @@ function CaseDetailsModal({
   const sectionContent = (key: SectionKey) => {
     if (key === 'case-timeline') {
       return <TimelineSection tables={tables} summaryFields={summaryFields} />;
+    }
+
+    // Prayer section is sourced from local Litigo case record
+    if (key === 'parties' && prayerRows.length > 0) {
+      const sectionTables = grouped.get(key) ?? [];
+      return (
+        <div className="space-y-4">
+          {sectionTables.map((t, i) => <DynamicTable key={`${key}-${i}`} table={t} />)}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Prayer &amp; Case Notes</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {prayerRows.map(([label, value]) => (
+                <div key={label} className="space-y-1 rounded-md border bg-muted/20 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+                  <p className="text-sm leading-relaxed">{value}</p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      );
     }
 
     const sectionTables = grouped.get(key) ?? [];
@@ -1377,6 +1412,7 @@ export default function TodaysListingsPage() {
           null
         }
         onRetry={retryCaseDetails}
+        localCase={selectedRecord?.case ?? null}
       />
 
       <Dialog open={captchaDialogOpen} onOpenChange={setCaptchaDialogOpen}>
