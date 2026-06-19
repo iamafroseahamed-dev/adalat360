@@ -39,7 +39,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, X, Eye, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Bell, Send, FileText, Clock } from 'lucide-react';
+import { Search, X, Eye, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Bell, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { Case, CaseNotificationRecipient, CauseListNotifStatus, NotificationLog } from '@/types';
@@ -55,12 +55,6 @@ interface MhcOrderRow {
   filename: string;
   citno: string;
   pdf_url: string | null;
-}
-interface MhcStatusResult {
-  success: boolean;
-  case_number: string;
-  main_cnt: string | null;
-  orders: MhcOrderRow[];
 }
 
 interface DailyCauseListRecord {
