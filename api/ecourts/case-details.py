@@ -121,8 +121,15 @@ def create_captcha_challenge() -> Dict[str, Any]:
     image_b64 = base64.b64encode(img_resp.content).decode("ascii")
 
     # Encode cookies into a stateless token so no server-side state is needed.
+    # Use a list of dicts instead of dict(session.cookies) to avoid
+    # CookieConflictError when the server sets multiple cookies with the same
+    # name (e.g. JSESSIONID on different paths).
+    cookies_list = [
+        {"name": c.name, "value": c.value, "domain": c.domain or "", "path": c.path or "/"}
+        for c in session.cookies
+    ]
     token_payload = {
-        "cookies": dict(session.cookies),
+        "cookies": cookies_list,
         "expires": (datetime.utcnow() + CAPTCHA_TOKEN_TTL).isoformat(),
     }
     token = base64.b64encode(json.dumps(token_payload).encode()).decode("ascii")
@@ -146,7 +153,17 @@ def session_from_token(captcha_token: str) -> requests.Session:
         raise ValueError("Captcha token has expired.")
 
     session = _ecourts_session()
-    session.cookies.update(token_data.get("cookies", {}))
+    cookies = token_data.get("cookies", [])
+    if isinstance(cookies, dict):
+        # backward-compat: old tokens stored cookies as a plain dict
+        session.cookies.update(cookies)
+    else:
+        for c in cookies:
+            session.cookies.set(
+                c["name"], c["value"],
+                domain=c.get("domain") or "",
+                path=c.get("path") or "/",
+            )
     return session
 
 
