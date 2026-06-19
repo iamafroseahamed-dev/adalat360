@@ -1140,7 +1140,7 @@ export default function TodaysListingsPage() {
   const [page, setPage] = useState(1);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchData = useCallback(async (forceRefresh = false) => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -1648,7 +1648,7 @@ export default function TodaysListingsPage() {
             onClick={async () => {
               setIsRefreshing(true);
               try {
-                await fetchData(true);
+                await fetchData();
                 toast.success('Cause list refreshed successfully.');
               } catch {
                 toast.error('Unable to refresh cause list. Please try again.');
