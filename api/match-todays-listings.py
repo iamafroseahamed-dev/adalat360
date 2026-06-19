@@ -485,9 +485,9 @@ def _enrich_all(matches: List[Dict]) -> Tuple[List[Dict], int]:
 
 
 # ── Automatic notifications ────────────────────────────────────────────────────
-# Phase 1: Email via Resend.  Phase 2: Twilio SMS.  Phase 3: Twilio WhatsApp.
+# Phase 1: Email via MailerSend.  Phase 2: Twilio SMS.  Phase 3: Twilio WhatsApp.
 
-RESEND_URL = 'https://api.resend.com/emails'
+MAILERSEND_URL = 'https://api.mailersend.com/v1/email'
 
 
 def _build_messages(match: Dict, recipient_name: str) -> Tuple[str, str, str, str]:
@@ -541,21 +541,33 @@ def _build_messages(match: Dict, recipient_name: str) -> Tuple[str, str, str, st
     return email_subject, email_body, sms_body, wa_body
 
 
-def _send_email_resend(to: str, subject: str, body: str) -> Dict[str, Any]:
-    api_key  = os.environ.get('RESEND_API_KEY', '')
+def _send_email(to: str, subject: str, body: str) -> Dict[str, Any]:
+    """Send email via MailerSend."""
+    api_key   = os.environ.get('MAILERSEND_API_KEY', '')
     from_addr = os.environ.get('EMAIL_FROM', 'notifications@litigo.in')
+    from_name = os.environ.get('EMAIL_FROM_NAME', 'Litigo')
     if not api_key:
-        return {'ok': False, 'error': 'RESEND_API_KEY not set'}
+        return {'ok': False, 'error': 'MAILERSEND_API_KEY not set'}
     try:
+        payload = {
+            'from':     {'email': from_addr, 'name': from_name},
+            'to':       [{'email': to}],
+            'subject':  subject,
+            'text':     body,
+        }
         r = requests.post(
-            RESEND_URL,
-            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-            json={'from': from_addr, 'to': [to], 'subject': subject, 'text': body},
+            MAILERSEND_URL,
+            headers={
+                'Authorization': f'Bearer {api_key}',
+                'Content-Type':  'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            json=payload,
             timeout=(5, 15),
         )
         resp = {}
         try:
-            resp = r.json()
+            resp = r.json() if r.text else {}
         except Exception:
             resp = {'raw': r.text[:200]}
         return {'ok': r.ok, 'status_code': r.status_code, 'response': resp}
@@ -661,7 +673,7 @@ def _notify_listings(listed_date: str) -> None:
 
                 # ── Email ──────────────────────────────────────────────────────
                 if rec.get('notify_email') and rec.get('email'):
-                    result = _send_email_resend(rec['email'], email_subj, email_body)
+                    result = _send_email(rec['email'], email_subj, email_body)
                     ok = result.get('ok', False)
                     delivery_logs.append({
                         'matched_listing_id': match['id'],
@@ -672,7 +684,7 @@ def _notify_listings(listed_date: str) -> None:
                         'subject':            email_subj,
                         'message':            email_body,
                         'status':             'sent' if ok else 'failed',
-                        'provider':           'resend',
+                        'provider':           'mailersend',
                         'provider_response':  result.get('response'),
                         'error_message':      result.get('error') if not ok else None,
                         'sent_at':            now_iso if ok else None,

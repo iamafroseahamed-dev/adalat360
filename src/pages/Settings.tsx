@@ -72,10 +72,6 @@ export default function Settings() {
 
   async function save() {
     if (!form.name.trim()) { toast.error('Name is required.'); return; }
-    if (!form.email && !form.mobile_number && !form.whatsapp_number) {
-      toast.error('At least one contact method is required.');
-      return;
-    }
     setSaving(true);
     try {
       const payload = {
@@ -99,7 +95,8 @@ export default function Settings() {
       setDialog(null);
       await load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to save.');
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error('Save failed: ' + (msg.includes('row-level') ? 'Permission denied. Run migration 010_fix_rls.sql in Supabase.' : msg));
     } finally {
       setSaving(false);
     }
@@ -303,19 +300,21 @@ export default function Settings() {
             </div>
             <div className="rounded-md border p-3 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channels</p>
-              {([
-                { key: 'notify_email'    as const, label: 'Email'     },
-                { key: 'notify_sms'      as const, label: 'SMS'       },
-                { key: 'notify_whatsapp' as const, label: 'WhatsApp'  },
-              ] as const).map(({ key, label }) => (
-                <div key={key} className="flex items-center justify-between">
-                  <Label className="cursor-pointer">{label}</Label>
-                  <Switch
-                    checked={form[key] as boolean}
-                    onCheckedChange={v => setForm(p => ({ ...p, [key]: v }))}
-                  />
-                </div>
-              ))}
+              <div className="flex items-center justify-between">
+                <Label>Email</Label>
+                <Switch checked={form.notify_email}
+                  onCheckedChange={v => setForm(p => ({ ...p, notify_email: v }))} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>SMS</Label>
+                <Switch checked={form.notify_sms}
+                  onCheckedChange={v => setForm(p => ({ ...p, notify_sms: v }))} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>WhatsApp</Label>
+                <Switch checked={form.notify_whatsapp}
+                  onCheckedChange={v => setForm(p => ({ ...p, notify_whatsapp: v }))} />
+              </div>
             </div>
             <div className="flex items-center justify-between rounded-md border p-3">
               <Label>Active</Label>
