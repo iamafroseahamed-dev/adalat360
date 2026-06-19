@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/lib/auth';
 import { useNavigate } from 'react-router-dom';
 import { Scale, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';

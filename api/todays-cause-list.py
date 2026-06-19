@@ -21,17 +21,13 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ── Supabase config ────────────────────────────────────────────────────────────
-SUPABASE_URL = os.environ.get(
-    'SUPABASE_URL',
-    'https://iyohifpzsqjxcrgrtsza.supabase.co',
-)
-SUPABASE_KEY = os.environ.get(
-    'SUPABASE_SERVICE_ROLE_KEY',
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.'
-    'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml5b2hpZnB6c3FqeGNyZ3J0c3phIiwicm9sZSI6'
-    'InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTU4OTQ1MiwiZXhwIjoyMDk3MTY1NDUyfQ.'
-    'BLz5-PeIc5TTjSAiYuWxnGgJYrVnqjh0RYwdirJn_50',
-)
+SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError(
+        'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set as environment variables.'
+    )
 _SB_HEADERS = {
     'apikey': SUPABASE_KEY,
     'Authorization': f'Bearer {SUPABASE_KEY}',
@@ -65,7 +61,11 @@ def _sb_latest_date(up_to: str) -> str | None:
 
 
 def _sb_fetch_date(cause_date: str) -> List[Dict[str, Any]]:
-    """Fetch ALL cause list rows for a specific date from Supabase (paginated)."""
+    """Fetch ALL cause list rows for a specific date from Supabase (paginated).
+    Only retrieves columns consumed by the frontend to reduce payload size.
+    """
+    # Columns used by TodaysCauseList + TodaysListings (omits raw_text, raw_data, source_url, etc.)
+    COLS = 'cause_date,court_name,bench,court_hall,item_number,case_number,cnr_number,petitioner,respondent,party_names,judge_name,last_hearing_or_stage,counsel_name'
     all_rows: List[Dict[str, Any]] = []
     page_size = 1000  # Supabase default max per request
     offset = 0
@@ -75,6 +75,7 @@ def _sb_fetch_date(cause_date: str) -> List[Dict[str, Any]]:
             f'?cause_date=eq.{cause_date}'
             '&court_name=eq.Madras%20High%20Court'
             '&bench=eq.Chennai'
+            f'&select={COLS}'
             '&order=court_hall.asc,item_number.asc'
             f'&limit={page_size}&offset={offset}'
         )

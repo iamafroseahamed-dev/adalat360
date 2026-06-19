@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
+import { sessionCache } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,20 @@ function isDormant(c: Case): boolean {
   if (c.case_status !== 'Pending') return false;
   if (!c.next_hearing_date) return true;
   return c.next_hearing_date < isoToday();
+}
+
+// Module-level — not recreated on every render
+function groupBy(arr: Case[], key: keyof Case) {
+  const map = new Map<string, { pending: number; disposed: number }>();
+  arr.forEach(c => {
+    const k = String(c[key] ?? '');
+    if (!map.has(k)) map.set(k, { pending: 0, disposed: 0 });
+    const entry = map.get(k)!;
+    if (c.case_status === 'Pending') entry.pending++;
+    else if (c.case_status === 'Disposed') entry.disposed++;
+  });
+  return [...map.entries()].map(([label, counts]) => ({ label, ...counts }))
+    .sort((a, b) => (b.pending + b.disposed) - (a.pending + a.disposed));
 }
 
 // ─── MetricCard ──────────────────────────────────────────────────────────────
@@ -250,6 +265,12 @@ function NotifyModal({ open, onClose, caseItem }: {
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
+function SensitivityBadge({ v }: { v: string | null }) {
+  if (v === 'Sensitive') return <Badge variant="purple">Sensitive</Badge>;
+  if (v === 'Non-Sensitive') return <Badge variant="outline">Non-Sensitive</Badge>;
+  return <Badge variant="outline">{v ?? '—'}</Badge>;
+}
+
 export default function DashboardPage() {
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
@@ -258,21 +279,38 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const today = isoToday();
+    const CACHE_KEY = 'litigo_dashboard';
+
     (async () => {
+      // Fast path: serve from 15-min session cache
+      const cached = sessionCache.get<{ cases: Case[]; notifStats: typeof notifStats }>(CACHE_KEY);
+      if (cached) {
+        setCases(cached.cases);
+        setNotifStats(cached.notifStats);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       const [casesResp, logsResp] = await Promise.all([
-        supabase.from('cases').select('*').eq('active', true)
+        // Only fetch columns needed for dashboard metrics + upcoming-hearings table
+        supabase.from('cases')
+          .select('id,case_number,cnr_number,case_status,next_hearing_date,sensitivity,cla_party_status,district,court_name,advocate_name,client_name,petitioner,respondent')
+          .eq('active', true)
           .order('next_hearing_date', { ascending: true, nullsFirst: false }),
         supabase.from('notification_logs').select('case_id,status')
           .gte('created_at', today).lt('created_at', isoTomorrow()),
       ]);
-      setCases((casesResp.data ?? []) as Case[]);
+      const fetchedCases = (casesResp.data ?? []) as Case[];
       const logs = (logsResp.data ?? []) as { case_id: string; status: string }[];
-      setNotifStats({
+      const stats = {
         sentToday: logs.filter(l => l.status === 'sent').length,
         failedToday: logs.filter(l => l.status === 'failed').length,
         casesNotifiedToday: new Set(logs.filter(l => l.status === 'sent').map(l => l.case_id)).size,
-      });
+      };
+      sessionCache.set(CACHE_KEY, { cases: fetchedCases, notifStats: stats });
+      setCases(fetchedCases);
+      setNotifStats(stats);
       setLoading(false);
     })();
   }, []);
@@ -287,20 +325,6 @@ export default function DashboardPage() {
   const hearingsTomorrow = useMemo(() => cases.filter(c => c.next_hearing_date === tomorrow), [cases, tomorrow]);
   const hearings7 = useMemo(() => cases.filter(c => c.next_hearing_date && c.next_hearing_date >= today && c.next_hearing_date <= in7), [cases, today, in7]);
   const dormant = useMemo(() => cases.filter(isDormant), [cases]);
-
-  // Chart data helpers
-  function groupBy(arr: Case[], key: keyof Case) {
-    const map = new Map<string, { pending: number; disposed: number }>();
-    arr.forEach(c => {
-      const k = String(c[key] ?? '');
-      if (!map.has(k)) map.set(k, { pending: 0, disposed: 0 });
-      const entry = map.get(k)!;
-      if (c.case_status === 'Pending') entry.pending++;
-      else if (c.case_status === 'Disposed') entry.disposed++;
-    });
-    return [...map.entries()].map(([label, counts]) => ({ label, ...counts }))
-      .sort((a, b) => (b.pending + b.disposed) - (a.pending + a.disposed));
-  }
 
   const bySensitivity = useMemo(() => groupBy(cases, 'sensitivity'), [cases]);
   const byCLA = useMemo(() => groupBy(cases, 'cla_party_status'), [cases]);
@@ -319,12 +343,6 @@ export default function DashboardPage() {
 
   const sensitivityMax = Math.max(...bySensitivity.map(r => r.pending + r.disposed), 1);
   const claMax = Math.max(...byCLA.map(r => r.pending + r.disposed), 1);
-
-  function SensitivityBadge({ v }: { v: string | null }) {
-    if (v === 'Sensitive') return <Badge variant="purple">Sensitive</Badge>;
-    if (v === 'Non-Sensitive') return <Badge variant="outline">Non-Sensitive</Badge>;
-    return <Badge variant="outline">{v ?? '—'}</Badge>;
-  }
 
   return (
     <div className="space-y-6 p-6">

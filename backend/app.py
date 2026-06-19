@@ -27,8 +27,8 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     DATABASE_URL: Optional[str] = None
-    SUPABASE_URL: str = 'https://iyohifpzsqjxcrgrtsza.supabase.co'
-    SUPABASE_SERVICE_ROLE_KEY: str = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml5b2hpZnB6c3FqeGNyZ3J0c3phIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTU4OTQ1MiwiZXhwIjoyMDk3MTY1NDUyfQ.BLz5-PeIc5TTjSAiYuWxnGgJYrVnqjh0RYwdirJn_50'
+    SUPABASE_URL: str = ''
+    SUPABASE_SERVICE_ROLE_KEY: str = ''
     MHC_TIMEOUT_SECONDS: int = 60  # read timeout; connect timeout is fixed at 10s
 
     class Config:

@@ -38,7 +38,8 @@ import {
 } from '@/components/ui/accordion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, X, Eye, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Bell, BellOff, Send } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Search, X, Eye, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Bell, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { Case, CaseNotificationRecipient, CauseListNotifStatus, NotificationLog } from '@/types';
@@ -545,47 +546,45 @@ function TimelineSection({
   );
 }
 
-// ─── Main Case Details Modal ──────────────────────────────────────────────────
+// ─── CNR extraction helper ────────────────────────────────────────────────────
 
-function CaseDetailsModal({
-  open,
-  onOpenChange,
-  loading,
-  error,
+const CNR_REGEX = /[A-Z]{4}[0-9]{12}/g;
+
+function extractCnrNumbers(record: MatchedRecord): string[] {
+  const sources = [
+    record.causeList.cnr_number ?? '',
+    record.case.cnr_number ?? '',
+    record.causeList.party_names ?? '',
+    record.causeList.case_number ?? '',
+  ];
+  const found = new Set<string>();
+  for (const src of sources) {
+    const matches = src.toUpperCase().match(CNR_REGEX) ?? [];
+    for (const m of matches) found.add(m);
+  }
+  // Also include plain cnr_number even if it doesn't match the regex
+  const plain = (record.causeList.cnr_number ?? record.case.cnr_number ?? '').trim().toUpperCase();
+  if (plain) found.add(plain);
+  return [...found].filter(Boolean);
+}
+
+// ─── Single-CNR panel (reused inside multi-CNR tabs) ─────────────────────────
+
+function CaseDetailPanel({
   details,
   cnrNumber,
-  onRetry,
   localCase,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  loading: boolean;
-  error: string | null;
-  details: CaseDetailsResponse | null;
+  details: CaseDetailsResponse;
   cnrNumber: string | null;
-  onRetry: () => void;
   localCase: Case | null;
 }) {
-  // Elapsed-time counter — starts ticking when loading begins, resets when done
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => {
-    if (loading) {
-      setElapsedSeconds(0);
-      intervalRef.current = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [loading]);
-
-  const tables = details?.tables ?? [];
-  const links = details?.links ?? [];
-  const summaryFields = details?.summary_fields ?? {};
+  const tables = details.tables ?? [];
+  const links = details.links ?? [];
+  const summaryFields = details.summary_fields ?? {};
   const { grouped } = useMemo(() => groupTablesBySection(tables), [tables]);
   const defaultOpen = ['case-summary', 'case-status', 'parties', 'hearing-history', 'orders', 'documents', 'scrutiny'];
 
-  // Prayer + additional fields from Litigo's own cases table (not returned by eCourts)
   const prayerRows = useMemo(() => {
     const rows: string[][] = [];
     if (localCase?.prayer) rows.push(['Prayer', localCase.prayer]);
@@ -596,16 +595,16 @@ function CaseDetailsModal({
   }, [localCase]);
 
   const topFields = useMemo(() => ({
-    cnr:         details?.cnr_number || cnrNumber || extractField(tables, summaryFields, 'CNR Number', 'CNR'),
-    caseNumber:  details?.case_number || extractField(tables, summaryFields, 'Registration Number', 'Registration No', 'Case Number', 'Case No'),
-    filingNum:   extractField(tables, summaryFields, 'Filing Number', 'Filing No', 'Diary Number', 'Diary No'),
-    regNum:      extractField(tables, summaryFields, 'Registration Number', 'Registration No', 'Reg No', 'Reg. No'),
-    status:      extractField(tables, summaryFields, 'Case Status', 'Current Status', 'Nature of Disposal', 'Stage'),
-    caseType:    extractField(tables, summaryFields, 'Judicial Branch', 'Category', 'Case Type', 'Type of Case'),
-    court:       extractField(tables, summaryFields, 'Coram', 'Court Name', 'High Court', 'Court'),
-    bench:       extractField(tables, summaryFields, 'Bench Type', 'Bench Name', 'Bench'),
+    cnr:        details.cnr_number || cnrNumber || extractField(tables, summaryFields, 'CNR Number', 'CNR'),
+    caseNumber: details.case_number || extractField(tables, summaryFields, 'Registration Number', 'Registration No', 'Case Number', 'Case No'),
+    filingNum:  extractField(tables, summaryFields, 'Filing Number', 'Filing No', 'Diary Number', 'Diary No'),
+    regNum:     extractField(tables, summaryFields, 'Registration Number', 'Registration No', 'Reg No', 'Reg. No'),
+    status:     extractField(tables, summaryFields, 'Case Status', 'Current Status', 'Nature of Disposal', 'Stage'),
+    caseType:   extractField(tables, summaryFields, 'Judicial Branch', 'Category', 'Case Type', 'Type of Case'),
+    court:      extractField(tables, summaryFields, 'Coram', 'Court Name', 'High Court', 'Court'),
+    bench:      extractField(tables, summaryFields, 'Bench Type', 'Bench Name', 'Bench'),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [tables, summaryFields, details?.cnr_number, details?.case_number, cnrNumber]);
+  }), [tables, summaryFields, details.cnr_number, details.case_number, cnrNumber]);
 
   const statusVariant = (s: string) => {
     const lower = s.toLowerCase();
@@ -619,17 +618,13 @@ function CaseDetailsModal({
     if (key === 'case-timeline') {
       return <TimelineSection tables={tables} summaryFields={summaryFields} />;
     }
-
-    // Prayer section is sourced from local Litigo case record
     if (key === 'parties' && prayerRows.length > 0) {
       const sectionTables = grouped.get(key) ?? [];
       return (
         <div className="space-y-4">
           {sectionTables.map((t, i) => <DynamicTable key={`${key}-${i}`} table={t} />)}
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Prayer &amp; Case Notes</CardTitle>
-            </CardHeader>
+            <CardHeader className="pb-3"><CardTitle className="text-base">Prayer &amp; Case Notes</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               {prayerRows.map(([label, value]) => (
                 <div key={label} className="space-y-1 rounded-md border bg-muted/20 p-3">
@@ -642,17 +637,11 @@ function CaseDetailsModal({
         </div>
       );
     }
-
     const sectionTables = grouped.get(key) ?? [];
     const sectionLinks = getLinksForSection(key, links);
     if (sectionTables.length === 0 && sectionLinks.length === 0) {
-      return (
-        <p className="py-2 text-sm text-muted-foreground">
-          No data found in the extracted response for this section.
-        </p>
-      );
+      return <p className="py-2 text-sm text-muted-foreground">No data found for this section.</p>;
     }
-
     return (
       <div className="space-y-4">
         {sectionTables.map((t, i) => <DynamicTable key={`${key}-${i}`} table={t} />)}
@@ -660,8 +649,140 @@ function CaseDetailsModal({
     );
   };
 
-  const hasContent = details && ((details.tables?.length ?? 0) > 0 || (details.text ?? '').trim().length > 0);
-  const isMappingMissing = details?.error === 'CASE_TYPE_MAPPING_NOT_FOUND';
+  const isMappingMissing = details.error === 'CASE_TYPE_MAPPING_NOT_FOUND';
+  const hasContent = (details.tables?.length ?? 0) > 0 || (details.text ?? '').trim().length > 0;
+
+  return (
+    <div className="flex flex-col min-h-0 flex-1">
+      {/* Summary strip */}
+      {Object.values(topFields).some(Boolean) && (
+        <div className="shrink-0 border-b bg-muted/30 px-4 py-3">
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {topFields.cnr && (
+              <div className="shrink-0 rounded-md border bg-card px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">CNR</p>
+                <p className="mt-0.5 font-mono text-xs font-bold">{topFields.cnr}</p>
+              </div>
+            )}
+            {topFields.caseNumber && (
+              <div className="shrink-0 rounded-md border bg-card px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Case No</p>
+                <p className="mt-0.5 font-mono text-xs font-bold">{topFields.caseNumber}</p>
+              </div>
+            )}
+            {topFields.status && (
+              <div className="shrink-0 rounded-md border bg-card px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Status</p>
+                <div className="mt-1"><Badge variant={statusVariant(topFields.status)} className="text-[10px]">{topFields.status}</Badge></div>
+              </div>
+            )}
+            {topFields.caseType && (
+              <div className="shrink-0 rounded-md border bg-card px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Case Type</p>
+                <p className="mt-0.5 text-xs font-semibold">{topFields.caseType}</p>
+              </div>
+            )}
+            {topFields.bench && (
+              <div className="shrink-0 rounded-md border bg-card px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Bench</p>
+                <p className="mt-0.5 text-xs font-semibold">{topFields.bench}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isMappingMissing && (
+        <div className="m-4 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-4 space-y-3">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Case type not yet configured for eCourts lookup</p>
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className="rounded border bg-background p-3 space-y-1">
+              <p className="text-muted-foreground uppercase tracking-wide font-semibold text-[10px]">Parsed Case Type</p>
+              <p className="font-mono font-bold text-destructive">{details.parsedCaseType ?? '—'}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!isMappingMissing && !hasContent && (
+        <div className="flex flex-1 items-center justify-center p-6">
+          <p className="text-sm text-muted-foreground">No case details available.</p>
+        </div>
+      )}
+
+      {!isMappingMissing && hasContent && (
+        <ScrollArea className="flex-1">
+          <div className="px-4 py-4 pb-10">
+            <Accordion type="multiple" defaultValue={defaultOpen} className="w-full">
+              {SECTION_CONFIG.map((section) => (
+                <AccordionItem key={section.key} value={section.key} className="border-b">
+                  <AccordionTrigger className="py-3 text-sm font-medium hover:no-underline">
+                    <span className="flex items-center gap-2">
+                      {section.title}
+                      {section.key !== 'case-timeline' &&
+                        (grouped.get(section.key as SectionKey) ?? []).length > 0 && (
+                          <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
+                            {(grouped.get(section.key as SectionKey) ?? []).length}
+                          </Badge>
+                        )}
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="pb-2">{sectionContent(section.key as SectionKey)}</div>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </div>
+        </ScrollArea>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Case Details Modal ──────────────────────────────────────────────────
+
+function CaseDetailsModal({
+  open,
+  onOpenChange,
+  loading,
+  loadingMessage,
+  error,
+  details,
+  allResults,
+  cnrNumber,
+  onRetry,
+  localCase,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  loading: boolean;
+  loadingMessage: string;
+  error: string | null;
+  details: CaseDetailsResponse | null;
+  allResults: CaseDetailsResponse[];
+  cnrNumber: string | null;
+  onRetry: () => void;
+  localCase: Case | null;
+}) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (loading) {
+      setElapsedSeconds(0);
+      intervalRef.current = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+    } else {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    }
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [loading]);
+
+  const [activeTab, setActiveTab] = useState('0');
+  useEffect(() => { if (open) setActiveTab('0'); }, [open]);
+
+  const isMulti = allResults.length > 1;
+  // Use allResults if available, else fall back to single details
+  const resultsToShow = allResults.length > 0 ? allResults : (details ? [details] : []);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -676,11 +797,13 @@ function CaseDetailsModal({
               <DialogTitle className="text-lg">Case Details</DialogTitle>
               <DialogDescription className="font-mono text-xs">
                 {loading
-                  ? 'Fetching case details from eCourts...'
-                  : `CNR: ${details?.cnr_number || cnrNumber || '—'}`}
+                  ? loadingMessage
+                  : isMulti
+                    ? `${resultsToShow.length} case histories found`
+                    : `CNR: ${details?.cnr_number || cnrNumber || '—'}`}
               </DialogDescription>
             </div>
-            {details?.searchType && (
+            {!isMulti && details?.searchType && (
               <Badge variant="outline" className="mt-1 shrink-0">{details.searchType}</Badge>
             )}
           </div>
@@ -702,138 +825,38 @@ function CaseDetailsModal({
           </div>
         )}
 
-        {/* Case type mapping missing — debug panel */}
-        {!loading && !error && isMappingMissing && (
-          <div className="flex flex-1 flex-col gap-4 overflow-auto p-6">
-            <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-4 space-y-4">
-              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                Case type not yet configured for eCourts lookup
-              </p>
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="rounded border bg-background p-3 space-y-1">
-                  <p className="text-muted-foreground uppercase tracking-wide font-semibold text-[10px]">Original Case Number</p>
-                  <p className="font-mono font-bold">{details?.caseNumber ?? '—'}</p>
-                </div>
-                <div className="rounded border bg-background p-3 space-y-1">
-                  <p className="text-muted-foreground uppercase tracking-wide font-semibold text-[10px]">Parsed Case Type</p>
-                  <p className="font-mono font-bold text-destructive">{details?.parsedCaseType ?? '—'}</p>
-                </div>
-                <div className="rounded border bg-background p-3 space-y-1">
-                  <p className="text-muted-foreground uppercase tracking-wide font-semibold text-[10px]">Parsed Case No</p>
-                  <p className="font-mono">{details?.parsedCaseNo ?? '—'}</p>
-                </div>
-                <div className="rounded border bg-background p-3 space-y-1">
-                  <p className="text-muted-foreground uppercase tracking-wide font-semibold text-[10px]">Parsed Year</p>
-                  <p className="font-mono">{details?.parsedYear ?? '—'}</p>
-                </div>
-              </div>
-              <p className="text-xs text-amber-700 dark:text-amber-400">
-                Add <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded font-mono">{details?.parsedCaseType}</code> to{' '}
-                <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded font-mono">CASE_TYPE_MAPPING</code>{' '}
-                in <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded font-mono">backend/app.py</code> with the correct eCourts numeric code.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Empty */}
-        {!loading && !error && !hasContent && (
+        {/* No content */}
+        {!loading && !error && resultsToShow.length === 0 && (
           <div className="flex flex-1 items-center justify-center p-6">
-            <p className="text-sm text-muted-foreground">No case details available for this CNR Number.</p>
+            <p className="text-sm text-muted-foreground">No case details available for this record.</p>
           </div>
         )}
 
-        {/* Main content */}
-        {!loading && !error && hasContent && (
-          <>
-            {/* Top summary strip */}
-            {Object.values(topFields).some(Boolean) && (
-              <div className="shrink-0 border-b bg-muted/30 px-6 py-3">
-                <div className="flex gap-3 overflow-x-auto pb-1">
-                  {topFields.cnr && (
-                    <div className="shrink-0 rounded-md border bg-card px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">CNR</p>
-                      <p className="mt-0.5 font-mono text-xs font-bold">{topFields.cnr}</p>
-                    </div>
-                  )}
-                  {topFields.caseNumber && (
-                    <div className="shrink-0 rounded-md border bg-card px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Case No</p>
-                      <p className="mt-0.5 font-mono text-xs font-bold">{topFields.caseNumber}</p>
-                    </div>
-                  )}
-                  {topFields.filingNum && (
-                    <div className="shrink-0 rounded-md border bg-card px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Filing No</p>
-                      <p className="mt-0.5 font-mono text-xs font-bold">{topFields.filingNum}</p>
-                    </div>
-                  )}
-                  {topFields.regNum && (
-                    <div className="shrink-0 rounded-md border bg-card px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Reg. No</p>
-                      <p className="mt-0.5 font-mono text-xs font-bold">{topFields.regNum}</p>
-                    </div>
-                  )}
-                  {topFields.status && (
-                    <div className="shrink-0 rounded-md border bg-card px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Status</p>
-                      <div className="mt-1">
-                        <Badge variant={statusVariant(topFields.status)} className="text-[10px]">
-                          {topFields.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  )}
-                  {topFields.caseType && (
-                    <div className="shrink-0 rounded-md border bg-card px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Case Type</p>
-                      <p className="mt-0.5 text-xs font-semibold">{topFields.caseType}</p>
-                    </div>
-                  )}
-                  {topFields.court && (
-                    <div className="max-w-[200px] shrink-0 rounded-md border bg-card px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Court</p>
-                      <p className="mt-0.5 text-xs font-semibold leading-tight">{topFields.court}</p>
-                    </div>
-                  )}
-                  {topFields.bench && (
-                    <div className="shrink-0 rounded-md border bg-card px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Bench</p>
-                      <p className="mt-0.5 text-xs font-semibold">{topFields.bench}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+        {/* Single result — same as before */}
+        {!loading && !error && resultsToShow.length === 1 && (
+          <CaseDetailPanel details={resultsToShow[0]} cnrNumber={cnrNumber} localCase={localCase} />
+        )}
 
-            {/* Accordion sections */}
-            <ScrollArea className="flex-1">
-              <div className="px-6 py-4 pb-10">
-                <Accordion type="multiple" defaultValue={defaultOpen} className="w-full">
-                  {SECTION_CONFIG.map((section) => (
-                    <AccordionItem key={section.key} value={section.key} className="border-b">
-                      <AccordionTrigger className="py-3 text-sm font-medium hover:no-underline">
-                        <span className="flex items-center gap-2">
-                          {section.title}
-                          {section.key !== 'case-timeline' &&
-                            (grouped.get(section.key as SectionKey) ?? []).length > 0 && (
-                              <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
-                                {(grouped.get(section.key as SectionKey) ?? []).length}
-                              </Badge>
-                            )}
-                        </span>
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className="pb-2">
-                          {sectionContent(section.key as SectionKey)}
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  ))}
-                </Accordion>
-              </div>
-            </ScrollArea>
-          </>
+        {/* Multiple results — tabbed */}
+        {!loading && !error && resultsToShow.length > 1 && (
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0">
+            <TabsList className="shrink-0 mx-4 mt-3 flex-wrap h-auto gap-1 justify-start bg-muted/50 p-1">
+              {resultsToShow.map((r, i) => (
+                <TabsTrigger
+                  key={i}
+                  value={String(i)}
+                  className="font-mono text-xs data-[state=active]:bg-background"
+                >
+                  {r.cnr_number || `History ${i + 1}`}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {resultsToShow.map((r, i) => (
+              <TabsContent key={i} value={String(i)} className="flex-1 min-h-0 mt-0 overflow-hidden flex flex-col">
+                <CaseDetailPanel details={r} cnrNumber={r.cnr_number ?? null} localCase={i === 0 ? localCase : null} />
+              </TabsContent>
+            ))}
+          </Tabs>
         )}
       </DialogContent>
     </Dialog>
@@ -1089,15 +1112,16 @@ export default function TodaysListingsPage() {
   const [totalCauseListCount, setTotalCauseListCount] = useState(0);
   const [matchedRecords, setMatchedRecords] = useState<MatchedRecord[]>([]);
   // case_number strings currently being resolved via /api/lookup-cnr
-  const [cnrLoadingKeys, setCnrLoadingKeys] = useState<Set<string>>(new Set());
   const [notifStatusMap, setNotifStatusMap] = useState<Map<string, CauseListNotifStatus>>(new Map());
   const [notifyRecord, setNotifyRecord] = useState<MatchedRecord | null>(null);
 
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Fetching case details from eCourts...');
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<MatchedRecord | null>(null);
   const [caseDetails, setCaseDetails] = useState<CaseDetailsResponse | null>(null);
+  const [caseDetailsResults, setCaseDetailsResults] = useState<CaseDetailsResponse[]>([]);
 
   const [captchaDialogOpen, setCaptchaDialogOpen] = useState(false);
   const [captchaValue, setCaptchaValue] = useState('');
@@ -1265,9 +1289,6 @@ export default function TodaysListingsPage() {
         (r) => r.matchType === 'case_number' && !r.causeList.cnr_number?.trim() && r.causeList.case_number?.trim(),
       );
       if (needsCnr.length > 0) {
-        const keys = new Set(needsCnr.map((r) => r.causeList.case_number!.trim()));
-        setCnrLoadingKeys(keys);
-
         needsCnr.forEach(async (r) => {
           const caseNumber = r.causeList.case_number!.trim();
           try {
@@ -1291,12 +1312,6 @@ export default function TodaysListingsPage() {
             }
           } catch (err) {
             console.warn('[lookup-cnr] failed for', caseNumber, err);
-          } finally {
-            setCnrLoadingKeys((prev) => {
-              const next = new Set(prev);
-              next.delete(caseNumber);
-              return next;
-            });
           }
         });
       }
@@ -1420,41 +1435,32 @@ export default function TodaysListingsPage() {
     setDetailsDialogOpen(true);
     setDetailsError(null);
     setCaseDetails(null);
+    setCaseDetailsResults([]);
 
-    // Prefer cause list CNR, then fall back to the internally stored case CNR
-    const cnr =
-      normalizeText(record.causeList.cnr_number) ||
-      normalizeText(record.case.cnr_number);
-
+    const cnrs = extractCnrNumbers(record).filter(Boolean);
+    const primaryCnr = cnrs[0] ?? '';
     const caseNum =
       normalizeText(record.causeList.case_number) ||
       normalizeText(record.case.case_number);
 
-    // If no CNR and no captcha yet, trigger captcha challenge first
-    if (!cnr && !captcha) {
+    // ── No CNR: captcha flow (case-number search) ──────────────────────────
+    if (!primaryCnr && !captcha) {
       if (!caseNum) {
         setDetailsLoading(false);
         setDetailsError('Neither CNR nor Case Number is available for this record.');
         return;
       }
       setDetailsLoading(true);
+      setLoadingMessage('Fetching case details from eCourts...');
       try {
         const res = await fetch('/api/ecourts/case-details', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ case_number: caseNum }),
         });
-
         let data: CaseDetailsResponse | null = null;
         try { data = (await res.json()) as CaseDetailsResponse; } catch { data = null; }
-
-        if (!res.ok) {
-          throw new Error(
-            data?.message ||
-              `Backend returned ${res.status}. Make sure the Python backend is running on port 8001.`,
-          );
-        }
-
+        if (!res.ok) throw new Error(data?.message || `Backend returned ${res.status}.`);
         if (data?.requiresCaptcha) {
           setDetailsDialogOpen(false);
           setCaptchaDialogOpen(true);
@@ -1464,96 +1470,95 @@ export default function TodaysListingsPage() {
           setCaptchaMessage(data.message ?? 'Captcha required for case number search.');
           return;
         }
-        if (data?.error === 'CASE_TYPE_MAPPING_NOT_FOUND') {
-          // Show debug panel inside the modal instead of a bare error string
-          setCaseDetails(data);
-          setDetailsLoading(false);
-          return;
-        }
+        if (data?.error === 'CASE_TYPE_MAPPING_NOT_FOUND') { setCaseDetails(data); return; }
         if (!data?.success) { setDetailsError(data?.message || 'Unable to fetch case details.'); return; }
         setCaseDetails(data);
-        // Back-fill discovered CNR into the table row so it shows immediately
-        if (data?.cnr_number) {
-          const discoveredCnr = data.cnr_number.trim();
-          setMatchedRecords((prev) =>
-            prev.map((r) =>
-              r === record
-                ? {
-                    ...r,
-                    causeList: { ...r.causeList, cnr_number: r.causeList.cnr_number || discoveredCnr },
-                    case: { ...r.case, cnr_number: r.case.cnr_number || discoveredCnr },
-                  }
-                : r,
-            ),
-          );
+        setCaseDetailsResults([data]);
+        if (data.cnr_number) {
+          const dc = data.cnr_number.trim();
+          setMatchedRecords(prev => prev.map(r => r === record
+            ? { ...r, causeList: { ...r.causeList, cnr_number: r.causeList.cnr_number || dc }, case: { ...r.case, cnr_number: r.case.cnr_number || dc } }
+            : r));
         }
       } catch (err) {
-        console.error('[TodaysListingsPage] details fetch error:', err);
-        setDetailsError('Unable to fetch case details.');
-      } finally {
-        setDetailsLoading(false);
-      }
+        setDetailsError(err instanceof Error ? err.message : 'Unable to fetch case details.');
+      } finally { setDetailsLoading(false); }
       return;
     }
 
-    setDetailsLoading(true);
-    try {
-      const payload: Record<string, string> = cnr
-        ? { cnr_number: cnr }
-        : { case_number: caseNum, captcha: captcha!.trim(), captcha_token: captchaTokenOverride ?? '' };
-
-      const response = await fetch('/api/ecourts/case-details', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      let data: CaseDetailsResponse | null = null;
-      try { data = (await response.json()) as CaseDetailsResponse; } catch { data = null; }
-
-      if (!response.ok) {
-        throw new Error(
-          data?.message ||
-            `Backend returned ${response.status}. Make sure the Python backend is running on port 8001.`,
-        );
-      }
-
-      if (data?.requiresCaptcha) {
-        setDetailsDialogOpen(false);
-        setCaptchaDialogOpen(true);
-        setCaptchaValue('');
-        setCaptchaImage(data.captchaImage ?? null);
-        setCaptchaToken(data.captchaToken ?? null);
-        setCaptchaMessage(data.message ?? 'Invalid captcha. Please try again.');
-        return;
-      }
-
-      if (data?.error === 'CASE_TYPE_MAPPING_NOT_FOUND') {
+    // ── Captcha submit: single CNR fetch ──────────────────────────────────
+    if (captcha && !primaryCnr) {
+      setDetailsLoading(true);
+      setLoadingMessage('Fetching case details from eCourts...');
+      try {
+        const payload = { case_number: caseNum, captcha: captcha.trim(), captcha_token: captchaTokenOverride ?? '' };
+        const response = await fetch('/api/ecourts/case-details', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        let data: CaseDetailsResponse | null = null;
+        try { data = (await response.json()) as CaseDetailsResponse; } catch { data = null; }
+        if (!response.ok) throw new Error(data?.message || `Backend returned ${response.status}.`);
+        if (data?.requiresCaptcha) {
+          setDetailsDialogOpen(false);
+          setCaptchaDialogOpen(true);
+          setCaptchaValue('');
+          setCaptchaImage(data.captchaImage ?? null);
+          setCaptchaToken(data.captchaToken ?? null);
+          setCaptchaMessage(data.message ?? 'Invalid captcha. Please try again.');
+          return;
+        }
+        if (data?.error === 'CASE_TYPE_MAPPING_NOT_FOUND') { setCaseDetails(data); return; }
+        if (!data?.success) { setDetailsError(data?.message || 'Unable to fetch case details.'); return; }
         setCaseDetails(data);
-        return;
+        setCaseDetailsResults([data]);
+      } catch (err) {
+        setDetailsError(err instanceof Error ? err.message : 'Unable to fetch case details.');
+      } finally { setDetailsLoading(false); }
+      return;
+    }
+
+    // ── One or more CNRs found: fetch each with sessionStorage cache ───────
+    setDetailsLoading(true);
+    const results: CaseDetailsResponse[] = [];
+
+    async function fetchOneCnr(cnr: string, idx: number): Promise<CaseDetailsResponse | null> {
+      const cacheKey = `case_history_${cnr}`;
+      try {
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached) as CaseDetailsResponse;
+          if (parsed.success) return parsed;
+        }
+      } catch { /* ignore parse errors */ }
+
+      setLoadingMessage(`Fetching case history ${idx + 1} of ${cnrs.length}… (${cnr})`);
+      try {
+        const res = await fetch('/api/ecourts/case-details', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cnr_number: cnr }),
+        });
+        let data: CaseDetailsResponse | null = null;
+        try { data = (await res.json()) as CaseDetailsResponse; } catch { return null; }
+        if (!res.ok || !data?.success) return null;
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch { /* quota */ }
+        return data;
+      } catch {
+        return null;
       }
+    }
 
-      if (!data?.success) { setDetailsError(data?.message || 'Unable to fetch case details.'); return; }
-
-      setCaseDetails(data);
-      // Back-fill discovered CNR into the table row so it shows immediately
-      if (data?.cnr_number) {
-        const discoveredCnr = data.cnr_number.trim();
-        setMatchedRecords((prev) =>
-          prev.map((r) =>
-            r === record
-              ? {
-                  ...r,
-                  causeList: { ...r.causeList, cnr_number: r.causeList.cnr_number || discoveredCnr },
-                  case: { ...r.case, cnr_number: r.case.cnr_number || discoveredCnr },
-                }
-              : r,
-          ),
-        );
+    try {
+      for (let i = 0; i < cnrs.length; i++) {
+        const result = await fetchOneCnr(cnrs[i], i);
+        if (result) results.push(result);
+      }
+      if (results.length === 0) {
+        setDetailsError('Unable to fetch case details for any CNR in this record.');
+      } else {
+        setCaseDetails(results[0]);
+        setCaseDetailsResults(results);
       }
     } catch (err) {
-      console.error('[TodaysListingsPage] details fetch error:', err);
-      setDetailsError('Unable to fetch case details.');
+      setDetailsError(err instanceof Error ? err.message : 'Unable to fetch case details.');
     } finally {
       setDetailsLoading(false);
     }
@@ -1760,7 +1765,6 @@ export default function TodaysListingsPage() {
                     <TableHead className="cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort('item_number')}>
                       Item No <SortIcon field="item_number" />
                     </TableHead>
-                    <TableHead className="whitespace-nowrap">CNR Number</TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort('case_number')}>
                       Cause List Case No <SortIcon field="case_number" />
                     </TableHead>
@@ -1782,7 +1786,7 @@ export default function TodaysListingsPage() {
                 <TableBody>
                   {paginated.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={15} className="py-10 text-center text-muted-foreground">
+                      <TableCell colSpan={14} className="py-10 text-center text-muted-foreground">
                         No records match your search or filters.
                       </TableCell>
                     </TableRow>
@@ -1791,18 +1795,6 @@ export default function TodaysListingsPage() {
                       <TableRow key={`${record.causeList.court_hall}-${record.causeList.item_number}-${record.causeList.case_number}-${idx}`}>
                         <TableCell className="whitespace-nowrap font-medium">{record.causeList.court_hall ?? '—'}</TableCell>
                         <TableCell className="whitespace-nowrap">{record.causeList.item_number ?? '—'}</TableCell>
-                        <TableCell className="whitespace-nowrap font-mono text-xs">
-                          {record.causeList.cnr_number?.trim() ? (
-                            record.causeList.cnr_number.trim()
-                          ) : cnrLoadingKeys.has(record.causeList.case_number?.trim() ?? '') ? (
-                            <span className="inline-flex items-center gap-1 text-muted-foreground">
-                              <RefreshCw className="h-3 w-3 animate-spin" />
-                              <span className="text-xs">looking up…</span>
-                            </span>
-                          ) : (
-                            '—'
-                          )}
-                        </TableCell>
                         <TableCell className="whitespace-nowrap font-mono text-xs">{record.causeList.case_number ?? '—'}</TableCell>
                         <TableCell className="whitespace-nowrap font-mono text-xs">{record.case.case_number ?? '—'}</TableCell>
                         <TableCell className="max-w-[160px] truncate" title={record.causeList.petitioner ?? undefined}>
@@ -1872,8 +1864,10 @@ export default function TodaysListingsPage() {
         open={detailsDialogOpen}
         onOpenChange={setDetailsDialogOpen}
         loading={detailsLoading}
+        loadingMessage={loadingMessage}
         error={detailsError}
         details={caseDetails}
+        allResults={caseDetailsResults}
         cnrNumber={
           normalizeText(selectedRecord?.causeList.cnr_number) ||
           normalizeText(selectedRecord?.case.cnr_number) ||

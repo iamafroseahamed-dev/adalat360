@@ -1,39 +1,63 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { Toaster } from "sonner";
-import { AuthProvider } from "@/contexts/AuthContext";
-import { ProtectedRoute, PublicRoute } from "@/components/auth/ProtectedRoute";
-import { AppShell } from "@/layouts/AppShell";
-import LoginPage from "@/pages/LoginPage";
-import DashboardPage from "@/pages/DashboardPage";
-import CasesPage from "@/pages/CasesPage";
-import CauseListPage from "@/pages/CauseListPage";
-import TodaysListingsPage from "@/pages/TodaysListingsPage";
+import { lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
+import { AuthProvider } from '@/lib/auth';
+import { ProtectedRoute, PublicRoute } from '@/components/ProtectedRoute';
+import { Layout } from '@/components/Layout';
+import { Skeleton } from '@/components/ui/skeleton';
+
+// Route-level code splitting — each page is a separate chunk loaded on demand
+const Login          = lazy(() => import('@/pages/Login'));
+const Dashboard      = lazy(() => import('@/pages/Dashboard'));
+const Cases          = lazy(() => import('@/pages/Cases'));
+const TodaysCauseList = lazy(() => import('@/pages/TodaysCauseList'));
+const TodaysListings  = lazy(() => import('@/pages/TodaysListings'));
+const Notifications  = lazy(() => import('@/pages/Notifications'));
+const Settings       = lazy(() => import('@/pages/Settings'));
+
+function PageLoader() {
+  return (
+    <div className="space-y-4 p-6">
+      <Skeleton className="h-8 w-48" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24" />)}
+      </div>
+      <Skeleton className="h-64" />
+    </div>
+  );
+}
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <Routes>
-          {/* Public */}
-          <Route element={<PublicRoute />}>
-            <Route path="/login" element={<LoginPage />} />
-          </Route>
-
-          {/* Protected */}
-          <Route element={<ProtectedRoute />}>
-            <Route element={<AppShell />}>
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/cases" element={<CasesPage />} />
-              <Route path="/cause-list" element={<CauseListPage />} />
-              <Route path="/todays-listings" element={<TodaysListingsPage />} />
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            {/* Public */}
+            <Route element={<PublicRoute />}>
+              <Route path="/login" element={<Login />} />
             </Route>
-          </Route>
 
-          {/* Fallback */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
+            {/* Protected */}
+            <Route element={<ProtectedRoute />}>
+              <Route element={<Layout />}>
+                <Route path="/dashboard"         element={<Dashboard />} />
+                <Route path="/cases"             element={<Cases />} />
+                <Route path="/todays-cause-list" element={<TodaysCauseList />} />
+                <Route path="/todays-listings"   element={<TodaysListings />} />
+                <Route path="/notifications"     element={<Notifications />} />
+                <Route path="/settings"          element={<Settings />} />
+              </Route>
+            </Route>
+
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </Suspense>
       </BrowserRouter>
       <Toaster richColors position="top-right" expand={true} duration={4000} />
     </AuthProvider>
   );
 }
+
+

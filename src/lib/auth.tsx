@@ -1,5 +1,9 @@
+/**
+ * lib/auth.ts — Auth context, provider, and hook merged into one file.
+ * Import AuthProvider in App.tsx and useAuth anywhere inside the tree.
+ */
 import type { ReactNode } from 'react';
-import { createContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { AuthUser, LoginCredentials } from '@/types';
 import { supabase } from '@/lib/supabase';
 
@@ -12,7 +16,9 @@ interface AuthContextValue {
   logout: () => Promise<void>;
 }
 
-export const AuthContext = createContext<AuthContextValue | null>(null);
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function fetchProfile(userId: string, email: string): Promise<AuthUser | null> {
   const { data, error } = await supabase
@@ -60,6 +66,8 @@ function buildLocalUser(email: string): AuthUser {
   };
 }
 
+// ── Provider ──────────────────────────────────────────────────────────────────
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(() => {
     try {
@@ -94,16 +102,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async ({ email, password }: LoginCredentials) => {
     if (!email || !password) throw new Error('Email and password are required');
-
-    // Try Supabase auth first
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (!error) return; // success — onAuthStateChange will set the user
+      if (!error) return;
     } catch {
       // network error — fall through to local auth
     }
-
-    // Fall back to local session (no Supabase users set up yet)
     const localUser = buildLocalUser(email);
     localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(localUser));
     setUser(localUser);
@@ -120,4 +124,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
+}
+
+// ── Hook ──────────────────────────────────────────────────────────────────────
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
 }

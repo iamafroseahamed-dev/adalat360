@@ -18,6 +18,40 @@ export function formatDateTime(date: string | Date): string {
   });
 }
 
+// ── Session-scoped cache (cleared when browser tab closes) ───────────────────
+// TTL is in milliseconds. Default: 15 minutes.
+
+const DEFAULT_TTL = 15 * 60 * 1000;
+
+interface CacheEntry<T> { data: T; expires: number }
+
+export const sessionCache = {
+  get<T>(key: string): T | null {
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return null;
+      const entry = JSON.parse(raw) as CacheEntry<T>;
+      if (Date.now() > entry.expires) {
+        sessionStorage.removeItem(key);
+        return null;
+      }
+      return entry.data;
+    } catch { return null; }
+  },
+
+  set<T>(key: string, data: T, ttl = DEFAULT_TTL): void {
+    try {
+      const entry: CacheEntry<T> = { data, expires: Date.now() + ttl };
+      sessionStorage.setItem(key, JSON.stringify(entry));
+    } catch { /* quota exceeded – ignore */ }
+  },
+
+  del(key: string): void {
+    try { sessionStorage.removeItem(key); } catch { /* ignore */ }
+  },
+};
+
+
 export function truncate(str: string, length: number): string {
   return str.length > length ? str.slice(0, length) + '...' : str;
 }
