@@ -37,33 +37,6 @@ interface DailyCauseListRecord {
 type SortField = 'court_hall' | 'item_number' | 'judge_name' | 'case_number';
 type SortDir = 'asc' | 'desc';
 
-const CACHE_KEY_PREFIX = 'cause_list_cache_';
-
-function getTodayCacheKey(): string {
-  return CACHE_KEY_PREFIX + new Date().toISOString().split('T')[0];
-}
-
-function loadFromCache(): DailyCauseListRecord[] | null {
-  try {
-    const raw = localStorage.getItem(getTodayCacheKey());
-    if (!raw) return null;
-    return JSON.parse(raw) as DailyCauseListRecord[];
-  } catch {
-    return null;
-  }
-}
-
-function saveToCache(rows: DailyCauseListRecord[]): void {
-  try {
-    // Remove any previous day caches
-    const today = getTodayCacheKey();
-    Object.keys(localStorage)
-      .filter(k => k.startsWith(CACHE_KEY_PREFIX) && k !== today)
-      .forEach(k => localStorage.removeItem(k));
-    localStorage.setItem(today, JSON.stringify(rows));
-  } catch { /* ignore quota errors */ }
-}
-
 async function fetchFromPythonApi(): Promise<DailyCauseListRecord[]> {
   console.log('Refreshing cause list...');
   const resp = await fetch(
@@ -95,7 +68,6 @@ export default function CauseListPage() {
 
   const [records, setRecords] = useState<DailyCauseListRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fromCache, setFromCache] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
@@ -106,31 +78,16 @@ export default function CauseListPage() {
   const [sortField, setSortField] = useState<SortField>('court_hall');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
-  const loadData = useCallback(async (forceRefresh = false) => {
+  const loadData = useCallback(async () => {
     setError(null);
-
-    // Serve from cache instantly on normal page load
-    if (!forceRefresh) {
-      const cached = loadFromCache();
-      if (cached && cached.length > 0) {
-        setRecords(cached);
-        setFromCache(true);
-        setLoading(false);
-        return;
-      }
-    }
-
     setLoading(true);
-    setFromCache(false);
     try {
       const rows = await fetchFromPythonApi();
-      saveToCache(rows);
       setRecords(rows);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(`Today's cause list is not yet available. ${msg}`);
     }
-
     setLoading(false);
   }, []);
 
@@ -205,7 +162,6 @@ export default function CauseListPage() {
             <p className="mt-0.5 text-sm text-muted-foreground">
               Total Records: {records.length}
               {filtered.length !== records.length && ` · Showing: ${filtered.length}`}
-              {fromCache && <span className="ml-2 text-xs text-muted-foreground/60">(cached — click Refresh to re-fetch)</span>}
             </p>
           )}
         </div>
@@ -216,8 +172,7 @@ export default function CauseListPage() {
             size="sm"
             className="h-9 gap-1"
             onClick={async () => {
-              localStorage.removeItem(getTodayCacheKey());
-              await loadData(true);
+              await loadData();
             }}
             disabled={loading}
           >
