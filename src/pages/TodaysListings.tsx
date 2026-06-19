@@ -1541,6 +1541,7 @@ export default function TodaysListingsPage() {
     // ── One or more CNRs found: fetch each with sessionStorage cache ───────
     setDetailsLoading(true);
     const results: CaseDetailsResponse[] = [];
+    const errors: string[] = [];
 
     async function fetchOneCnr(cnr: string, idx: number): Promise<CaseDetailsResponse | null> {
       const cacheKey = `case_history_${cnr}`;
@@ -1560,11 +1561,36 @@ export default function TodaysListingsPage() {
           body: JSON.stringify({ cnr_number: cnr }),
         });
         let data: CaseDetailsResponse | null = null;
-        try { data = (await res.json()) as CaseDetailsResponse; } catch { return null; }
-        if (!res.ok || !data?.success) return null;
+        try { data = (await res.json()) as CaseDetailsResponse; } catch { /* ignore */ }
+
+        if (!res.ok) {
+          const reason = data?.message ?? `HTTP ${res.status}`;
+          console.warn(`[ecourts] CNR ${cnr} → ${reason}`);
+          errors.push(`${cnr}: ${reason}`);
+          return null;
+        }
+        // eCourts returned 200 but needs captcha → surface the captcha dialog
+        if (data?.requiresCaptcha) {
+          setDetailsDialogOpen(false);
+          setCaptchaDialogOpen(true);
+          setCaptchaValue('');
+          setCaptchaImage(data.captchaImage ?? null);
+          setCaptchaToken(data.captchaToken ?? null);
+          setCaptchaMessage(data.message ?? 'Captcha required. Please complete the verification.');
+          return null;
+        }
+        if (!data?.success) {
+          const reason = data?.message ?? data?.error ?? 'Unknown error from eCourts';
+          console.warn(`[ecourts] CNR ${cnr} → success=false: ${reason}`);
+          errors.push(`${cnr}: ${reason}`);
+          return null;
+        }
         try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch { /* quota */ }
         return data;
-      } catch {
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : 'Network error';
+        console.warn(`[ecourts] CNR ${cnr} → exception: ${reason}`);
+        errors.push(`${cnr}: ${reason}`);
         return null;
       }
     }
@@ -1575,7 +1601,10 @@ export default function TodaysListingsPage() {
         if (result) results.push(result);
       }
       if (results.length === 0) {
-        setDetailsError('Unable to fetch case details for any CNR in this record.');
+        const detail = errors.length > 0
+          ? `eCourts lookup failed:\n${errors.join('\n')}`
+          : 'Unable to fetch case details. The eCourts server may be slow or unavailable.';
+        setDetailsError(detail);
       } else {
         setCaseDetails(results[0]);
         setCaseDetailsResults(results);
