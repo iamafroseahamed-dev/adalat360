@@ -1,4 +1,5 @@
 ﻿import { useState, useEffect, useMemo, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
 import { Input } from '@/components/ui/input';
 import {
   Table, TableBody, TableCell, TableHead,
@@ -11,8 +12,6 @@ import * as XLSX from 'xlsx';
 
 interface DailyCauseListRecord {
   cause_date?: string | null;
-  source_type?: string | null;
-  source_url?: string | null;
   court_name?: string | null;
   bench?: string | null;
   court_hall: string | null;
@@ -23,40 +22,53 @@ interface DailyCauseListRecord {
   respondent: string | null;
   party_names: string | null;
   judge_name: string | null;
-  section?: string | null;
-  district?: string | null;
-  prayer?: string | null;
   last_hearing_or_stage: string | null;
   counsel_name: string | null;
-  raw_text?: string | null;
-  raw_data?: string | null;
-  import_status?: string | null;
-  updated_at?: string | null;
 }
 
 type SortField = 'court_hall' | 'item_number' | 'judge_name' | 'case_number';
 type SortDir = 'asc' | 'desc';
 
-async function fetchFromPythonApi(forceRefresh = false): Promise<DailyCauseListRecord[]> {
-  const url = forceRefresh
-    ? `/api/todays-cause-list?refresh=1&t=${Date.now()}`
-    : `/api/todays-cause-list?t=${Date.now()}`;
-  console.log(forceRefresh ? 'Force-refreshing cause list from MHC...' : 'Loading cause list...');
-  const resp = await fetch(url, {
-    cache: 'no-store',
-    headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
-  });
-  if (!resp.ok) {
-    let detail = `HTTP ${resp.status}`;
-    try {
-      const body = await resp.json();
-      if (body?.detail) detail = body.detail;
-    } catch { /* ignore */ }
-    throw new Error(detail);
+const COLS = 'cause_date,court_name,bench,court_hall,item_number,case_number,cnr_number,petitioner,respondent,party_names,judge_name,last_hearing_or_stage,counsel_name';
+const PAGE = 1000; // Supabase page size
+
+async function fetchFromSupabase(): Promise<DailyCauseListRecord[]> {
+  // 1. Find the most recent available cause_date
+  const { data: dateRow, error: dateErr } = await supabase
+    .from('daily_cause_list')
+    .select('cause_date')
+    .eq('court_name', 'Madras High Court')
+    .eq('bench', 'Chennai')
+    .order('cause_date', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (dateErr || !dateRow) throw new Error('No cause list data available in the database.');
+
+  const causeDate = dateRow.cause_date as string;
+
+  // 2. Fetch all rows for that date (paginated)
+  const allRows: DailyCauseListRecord[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from('daily_cause_list')
+      .select(COLS)
+      .eq('cause_date', causeDate)
+      .eq('court_name', 'Madras High Court')
+      .eq('bench', 'Chennai')
+      .order('court_hall', { ascending: true })
+      .order('item_number', { ascending: true })
+      .range(offset, offset + PAGE - 1);
+
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    allRows.push(...(data as DailyCauseListRecord[]));
+    if (data.length < PAGE) break;
+    offset += PAGE;
   }
-  const rows: DailyCauseListRecord[] = await resp.json();
-  console.log('Records returned:', rows.length);
-  return rows;
+
+  return allRows;
 }
 
 export default function CauseListPage() {
@@ -74,15 +86,15 @@ export default function CauseListPage() {
   const [sortField, setSortField] = useState<SortField>('court_hall');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
-  const loadData = useCallback(async (forceRefresh = false) => {
+  const loadData = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
-      const rows = await fetchFromPythonApi(forceRefresh);
+      const rows = await fetchFromSupabase();
       setRecords(rows);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(`Today's cause list is not yet available. ${msg}`);
+      setError(msg);
     }
     setLoading(false);
   }, []);
@@ -168,7 +180,7 @@ export default function CauseListPage() {
             size="sm"
             className="h-9 gap-1"
             onClick={async () => {
-              await loadData(true);
+              await loadData();
             }}
             disabled={loading}
           >
@@ -262,7 +274,7 @@ export default function CauseListPage() {
       {!loading && error && (
         <div className="flex flex-col items-center justify-center py-24 gap-3">
           <p className="text-sm text-destructive">{error}</p>
-          <Button variant="outline" size="sm" onClick={() => loadData(true)}>Try Again</Button>
+          <Button variant="outline" size="sm" onClick={() => loadData()}>Try Again</Button>
         </div>
       )}
 
