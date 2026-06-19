@@ -65,18 +65,27 @@ def _sb_latest_date(up_to: str) -> str | None:
 
 
 def _sb_fetch_date(cause_date: str) -> List[Dict[str, Any]]:
-    """Fetch all cause list rows for a specific date from Supabase."""
-    url = (
-        f'{SUPABASE_URL}/rest/v1/daily_cause_list'
-        f'?cause_date=eq.{cause_date}'
-        '&court_name=eq.Madras%20High%20Court'
-        '&bench=eq.Chennai'
-        '&order=court_hall.asc,item_number.asc'
-        '&limit=10000'
-    )
-    resp = requests.get(url, headers=_SB_HEADERS, timeout=SB_TIMEOUT)
-    resp.raise_for_status()
-    return resp.json() or []
+    """Fetch ALL cause list rows for a specific date from Supabase (paginated)."""
+    all_rows: List[Dict[str, Any]] = []
+    page_size = 1000  # Supabase default max per request
+    offset = 0
+    while True:
+        url = (
+            f'{SUPABASE_URL}/rest/v1/daily_cause_list'
+            f'?cause_date=eq.{cause_date}'
+            '&court_name=eq.Madras%20High%20Court'
+            '&bench=eq.Chennai'
+            '&order=court_hall.asc,item_number.asc'
+            f'&limit={page_size}&offset={offset}'
+        )
+        resp = requests.get(url, headers=_SB_HEADERS, timeout=SB_TIMEOUT)
+        resp.raise_for_status()
+        page = resp.json() or []
+        all_rows.extend(page)
+        if len(page) < page_size:
+            break  # last page
+        offset += page_size
+    return all_rows
 
 
 def _sb_delete_today(cause_date: str) -> None:

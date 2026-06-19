@@ -301,30 +301,38 @@ def get_matched_listings() -> List[Dict[str, Any]]:
             return []
         latest_date = latest_rows[0]['cause_date']
 
-        cause_list_url = (
-            f"{settings.SUPABASE_URL}/rest/v1/daily_cause_list"
-            "?select=id,cause_date,court_hall,item_number,cnr_number,case_number,petitioner,respondent,judge_name,last_hearing_or_stage"
-            f"&cause_date=eq.{latest_date}"
-            "&court_name=eq.Madras%20High%20Court"
-            "&bench=eq.Chennai"
-            "&order=court_hall.asc,item_number.asc"
-            "&limit=5000"
-        )
-        cause_list_resp = requests.get(
-            cause_list_url,
-            headers={
-                'apikey': settings.SUPABASE_SERVICE_ROLE_KEY,
-                'Authorization': f'Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}',
-                'Accept': 'application/json',
-            },
-            timeout=settings.MHC_TIMEOUT_SECONDS,
-        )
-        cause_list_resp.raise_for_status()
-        cause_rows = cause_list_resp.json() or []
+        # Fetch all rows for that date using pagination (Supabase caps at 1000/request)
+        sb_headers = {
+            'apikey': settings.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': f'Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}',
+            'Accept': 'application/json',
+        }
+        cause_rows: List[Dict[str, Any]] = []
+        page_size = 1000
+        offset = 0
+        while True:
+            cause_list_url = (
+                f"{settings.SUPABASE_URL}/rest/v1/daily_cause_list"
+                "?select=id,cause_date,court_hall,item_number,cnr_number,case_number,petitioner,respondent,judge_name,last_hearing_or_stage"
+                f"&cause_date=eq.{latest_date}"
+                "&court_name=eq.Madras%20High%20Court"
+                "&bench=eq.Chennai"
+                "&order=court_hall.asc,item_number.asc"
+                f"&limit={page_size}&offset={offset}"
+            )
+            cause_list_resp = requests.get(
+                cause_list_url, headers=sb_headers, timeout=settings.MHC_TIMEOUT_SECONDS,
+            )
+            cause_list_resp.raise_for_status()
+            page = cause_list_resp.json() or []
+            cause_rows.extend(page)
+            if len(page) < page_size:
+                break
+            offset += page_size
 
         cases_url = (
             f"{settings.SUPABASE_URL}/rest/v1/cases"
-            "?select=cnr_number,case_number,advocate_name,client_name&limit=10000"
+            "?select=cnr_number,case_number,advocate_name,client_name&limit=1000&offset=0"
         )
         cases_resp = requests.get(
             cases_url,
