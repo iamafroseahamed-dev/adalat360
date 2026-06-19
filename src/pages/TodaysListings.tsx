@@ -39,10 +39,29 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, X, Eye, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Bell, Send } from 'lucide-react';
+import { Search, X, Eye, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Bell, Send, FileText, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { Case, CaseNotificationRecipient, CauseListNotifStatus, NotificationLog } from '@/types';
+
+// ── MHC order row returned by /api/mhc/case-status ───────────────────────────
+interface MhcOrderRow {
+  casetype_t: string;
+  caseno: string;
+  petname: string;
+  resname: string;
+  juddate: string;
+  jud1: string;
+  filename: string;
+  citno: string;
+  pdf_url: string | null;
+}
+interface MhcStatusResult {
+  success: boolean;
+  case_number: string;
+  main_cnt: string | null;
+  orders: MhcOrderRow[];
+}
 
 interface DailyCauseListRecord {
   id?: string;
@@ -729,6 +748,94 @@ function CaseDetailPanel({
         </ScrollArea>
       )}
     </div>
+  );
+}
+
+// ─── MHC Order Panel ─────────────────────────────────────────────────────────
+
+function MhcOrderPanel({
+  result,
+  onLoadHistory,
+  loadingHistory,
+}: {
+  result: MhcStatusResult;
+  onLoadHistory: () => void;
+  loadingHistory: boolean;
+}) {
+  if (!result.orders || result.orders.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-sm text-muted-foreground">No orders found for this case on MHC.</p>
+        <Button variant="outline" size="sm" onClick={onLoadHistory} disabled={loadingHistory}>
+          <Clock className="h-3.5 w-3.5 mr-1.5" />
+          {loadingHistory ? 'Loading history…' : 'Load Case History (eCourts)'}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="flex-1">
+      <div className="space-y-4 p-4">
+        {result.orders.map((order, i) => (
+          <Card key={i}>
+            <CardContent className="p-4 space-y-3">
+              {/* Case header */}
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-mono text-sm font-bold">{order.caseno || result.case_number}</p>
+                  <p className="text-xs text-muted-foreground">{order.jud1}</p>
+                </div>
+                {order.juddate && (
+                  <div className="shrink-0 rounded-md border bg-muted/30 px-2 py-1 text-center">
+                    <p className="text-[10px] text-muted-foreground">Order Date</p>
+                    <p className="text-xs font-semibold">{order.juddate}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Parties */}
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="rounded-md border bg-muted/20 p-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Petitioner</p>
+                  <p className="font-medium">{order.petname || '—'}</p>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Respondent</p>
+                  <p className="font-medium">{order.resname || '—'}</p>
+                </div>
+              </div>
+
+              {/* PDF link */}
+              {order.pdf_url && (
+                <a
+                  href={order.pdf_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  View Order PDF
+                  <ExternalLink className="h-3 w-3 opacity-60" />
+                </a>
+              )}
+
+              {order.citno && (
+                <p className="text-[11px] text-muted-foreground">Citation: {order.citno}</p>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+
+        {/* Load full eCourts history */}
+        <div className="flex justify-center pt-2 pb-4">
+          <Button variant="outline" size="sm" onClick={onLoadHistory} disabled={loadingHistory}>
+            <Clock className="h-3.5 w-3.5 mr-1.5" />
+            {loadingHistory ? 'Loading full history…' : 'Load Full Case History (eCourts)'}
+          </Button>
+        </div>
+      </div>
+    </ScrollArea>
   );
 }
 
@@ -1537,69 +1644,83 @@ export default function TodaysListingsPage() {
       return;
     }
 
-    // ── One or more CNRs found: fetch each with sessionStorage cache ───────
+    // ── One or more CNRs found ─────────────────────────────────────────────
     setDetailsLoading(true);
     const results: CaseDetailsResponse[] = [];
     const errors: string[] = [];
 
-    async function fetchOneCnr(cnr: string, idx: number): Promise<CaseDetailsResponse | null> {
-      const cacheKey = `case_history_${cnr}`;
+    // ── 1. Try MHC viewstatus first (JSON API, fast, no captcha) ─────────
+    const causeListCaseNum = normalizeText(record.causeList.case_number);
+    if (causeListCaseNum) {
+      setLoadingMessage(`Fetching orders from MHC… (${causeListCaseNum})`);
       try {
-        const cached = sessionStorage.getItem(cacheKey);
-        if (cached) {
-          const parsed = JSON.parse(cached) as CaseDetailsResponse;
-          if (parsed.success) return parsed;
-        }
-      } catch { /* ignore parse errors */ }
-
-      setLoadingMessage(`Fetching case history ${idx + 1} of ${cnrs.length}… (${cnr})`);
-      try {
-        const res = await fetch('/api/ecourts/case-details', {
+        const mhcRes = await fetch('/api/mhc/case-status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cnr_number: cnr }),
+          body: JSON.stringify({ case_number: causeListCaseNum }),
         });
-        let data: CaseDetailsResponse | null = null;
-        try { data = (await res.json()) as CaseDetailsResponse; } catch { /* ignore */ }
-
-        if (!res.ok) {
-          const reason = data?.message ?? `HTTP ${res.status}`;
-          console.warn(`[ecourts] CNR ${cnr} → ${reason}`);
-          errors.push(`${cnr}: ${reason}`);
-          return null;
+        if (mhcRes.ok) {
+          const mhcData = await mhcRes.json() as CaseDetailsResponse;
+          if (mhcData.success && (mhcData.tables?.length ?? 0) > 0) {
+            results.push(mhcData);
+          }
         }
-        // eCourts returned 200 but needs captcha → surface the captcha dialog
-        if (data?.requiresCaptcha) {
-          setDetailsDialogOpen(false);
-          setCaptchaDialogOpen(true);
-          setCaptchaValue('');
-          setCaptchaImage(data.captchaImage ?? null);
-          setCaptchaToken(data.captchaToken ?? null);
-          setCaptchaMessage(data.message ?? 'Captcha required. Please complete the verification.');
-          return null;
-        }
-        if (!data?.success) {
-          const reason = data?.message ?? data?.error ?? 'Unknown error from eCourts';
-          console.warn(`[ecourts] CNR ${cnr} → success=false: ${reason}`);
-          errors.push(`${cnr}: ${reason}`);
-          return null;
-        }
-        try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch { /* quota */ }
-        return data;
-      } catch (e) {
-        const reason = e instanceof Error ? e.message : 'Network error';
-        console.warn(`[ecourts] CNR ${cnr} → exception: ${reason}`);
-        errors.push(`${cnr}: ${reason}`);
-        return null;
-      }
+      } catch { /* fall through to eCourts */ }
     }
 
-    try {
+    // ── 2. eCourts per CNR (only if MHC returned nothing) ────────────────
+    if (results.length === 0) {
+      async function fetchOneCnr(cnr: string, idx: number): Promise<CaseDetailsResponse | null> {
+        const cacheKey = `case_history_${cnr}`;
+        try {
+          const cached = sessionStorage.getItem(cacheKey);
+          if (cached) {
+            const parsed = JSON.parse(cached) as CaseDetailsResponse;
+            if (parsed.success) return parsed;
+          }
+        } catch { /* ignore */ }
+
+        setLoadingMessage(`Fetching case history ${idx + 1} of ${cnrs.length}… (${cnr})`);
+        try {
+          const res = await fetch('/api/ecourts/case-details', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cnr_number: cnr }),
+          });
+          let data: CaseDetailsResponse | null = null;
+          try { data = (await res.json()) as CaseDetailsResponse; } catch { /* ignore */ }
+
+          if (!res.ok) {
+            const reason = data?.message ?? `HTTP ${res.status}`;
+            errors.push(`${cnr}: ${reason}`);
+            return null;
+          }
+          if (data?.requiresCaptcha) {
+            setDetailsDialogOpen(false);
+            setCaptchaDialogOpen(true);
+            setCaptchaValue('');
+            setCaptchaImage(data.captchaImage ?? null);
+            setCaptchaToken(data.captchaToken ?? null);
+            setCaptchaMessage(data.message ?? 'Captcha required.');
+            return null;
+          }
+          if (!data?.success) {
+            errors.push(`${cnr}: ${data?.message ?? data?.error ?? 'Unknown error'}`);
+            return null;
+          }
+          try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch { /* quota */ }
+          return data;
+        } catch (e) {
+          errors.push(`${cnr}: ${e instanceof Error ? e.message : 'Network error'}`);
+          return null;
+        }
+      }
+
       for (let i = 0; i < cnrs.length; i++) {
         const result = await fetchOneCnr(cnrs[i], i);
         if (result) results.push(result);
       }
-      if (results.length === 0) {
+    }
         const detail = errors.length > 0
           ? `eCourts lookup failed:\n${errors.join('\n')}`
           : 'Unable to fetch case details. The eCourts server may be slow or unavailable.';

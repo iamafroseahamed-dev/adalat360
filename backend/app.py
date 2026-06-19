@@ -1874,5 +1874,71 @@ def send_case_alert(request: SendCaseAlertRequest) -> Dict[str, Any]:
     return {'success': True, 'sent': sent, 'failed': failed, 'logs': logs}
 
 
+# ── MHC Direct Case Status ─────────────────────────────────────────────────────
+
+MHC_VIEWSTATUS_URL = 'https://mhc.tn.gov.in/judis/index.php/casestatus/viewstatus'
+MHC_VIEWPDF_BASE   = 'https://mhc.tn.gov.in/judis/index.php/casestatus/viewpdf'
+
+
+class MhcCaseStatusRequest(BaseModel):
+    case_number: str   # e.g. "WP/1141/2025"
+
+
+def _parse_case_components(case_number: str):
+    """Split  TYPE/NUMBER/YEAR  →  (casetype, cno, cyear) or None."""
+    cleaned = re.sub(r'\s+', '/', case_number.strip()).upper()
+    parts   = [p.strip() for p in cleaned.split('/') if p.strip()]
+    if len(parts) < 3:
+        return None
+    casetype = re.sub(r'[^A-Z]', '', parts[0])
+    cno      = re.sub(r'\D', '', parts[1])
+    cyear    = re.sub(r'\D', '', parts[2])
+    return (casetype, cno, cyear) if casetype and cno and cyear else None
+
+
+@app.post('/api/mhc/case-status')
+def get_mhc_case_status(request: MhcCaseStatusRequest) -> JSONResponse:
+    """Call MHC viewstatus and return raw JSON including filename for PDF link."""
+    parsed = _parse_case_components(request.case_number)
+    if not parsed:
+        raise HTTPException(
+            status_code=400,
+            detail=f'Cannot parse "{request.case_number}". Expected format: TYPE/NUMBER/YEAR',
+        )
+    casetype, cno, cyear = parsed
+
+    try:
+        resp = requests.post(
+            MHC_VIEWSTATUS_URL,
+            data={'cno': cno, 'cyear': cyear, 'reportable': 'A', 'casetype': casetype},
+            headers={
+                'User-Agent': 'Mozilla/5.0',
+                'Referer': 'https://mhc.tn.gov.in/',
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            timeout=(10, 30),
+            verify=False,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=503, detail=f'MHC viewstatus unavailable: {exc}') from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f'Failed to parse MHC response: {exc}') from exc
+
+    # Enrich each row with a ready-to-use pdf_url
+    rows = data.get('main_tb') or []
+    for row in rows:
+        fn = (row.get('filename') or '').strip()
+        row['pdf_url'] = f'{MHC_VIEWPDF_BASE}/{fn}' if fn else None
+
+    return JSONResponse(content={
+        'success': True,
+        'case_number': request.case_number,
+        'main_cnt': data.get('main_cnt'),
+        'orders': rows,
+    })
+
+
 if __name__ == '__main__':
     uvicorn.run(app, host='127.0.0.1', port=8001)
