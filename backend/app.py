@@ -7,7 +7,6 @@ import secrets
 from threading import Lock
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin
-import xml.etree.ElementTree as ET
 
 import ddddocr
 import fitz
@@ -370,66 +369,6 @@ def get_matched_listings() -> List[Dict[str, Any]]:
         return matched_rows
     except requests.RequestException as exc:
         raise HTTPException(status_code=500, detail='Unable to load matched listings.') from exc
-
-
-MHC_XML_BASE = 'https://mhc.tn.gov.in/judis/clists/clists-madras/causelists/xml/cause_{date}.xml'
-
-
-def _parse_mhc_xml(xml_bytes: bytes, cause_date_str: str, xml_url: str) -> List[Dict[str, Any]]:
-    root = ET.fromstring(xml_bytes)
-    seen: Set[Tuple[str, str, str, str]] = set()
-    rows: List[Dict[str, Any]] = []
-
-    for court in root.iter('court'):
-        court_hall = court.findtext('courtno') or ''
-        judge_name = court.findtext('judge1') or ''
-
-        for stage in court.iter('stage'):
-            stage_name = stage.findtext('stagename') or ''
-
-            for case in stage.iter('casedetails'):
-                case_type = case.findtext('mcasetype') or ''
-                case_no = case.findtext('mcaseno') or ''
-                case_year = case.findtext('mcaseyr') or ''
-                case_number = f'{case_type}/{case_no}/{case_year}'
-                petitioner = case.findtext('pname') or ''
-                respondent = case.findtext('rname') or ''
-                item_number = case.findtext('serial_no') or ''
-                counsel_name = case.findtext('mpadv') or ''
-
-                dedup_key = (cause_date_str, court_hall, item_number, case_number)
-                if dedup_key in seen:
-                    continue
-                seen.add(dedup_key)
-
-                party_names = ' | '.join(filter(None, [petitioner, respondent]))
-
-                rows.append({
-                    'cause_date': cause_date_str,
-                    'source_type': 'xml',
-                    'source_url': xml_url,
-                    'court_name': 'Madras High Court',
-                    'bench': 'Chennai',
-                    'court_hall': court_hall,
-                    'item_number': item_number,
-                    'case_number': case_number,
-                    'cnr_number': None,
-                    'petitioner': petitioner,
-                    'respondent': respondent,
-                    'party_names': party_names,
-                    'judge_name': judge_name,
-                    'section': None,
-                    'district': None,
-                    'prayer': None,
-                    'last_hearing_or_stage': stage_name,
-                    'counsel_name': counsel_name,
-                    'raw_text': None,
-                    'raw_data': None,
-                    'import_status': 'parsed',
-                    'updated_at': datetime.utcnow().isoformat(),
-                })
-
-    return rows
 
 
 _SB_HEADERS = {
