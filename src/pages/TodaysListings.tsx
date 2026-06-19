@@ -1746,7 +1746,8 @@ export default function TodaysListingsPage() {
         const result = await fetchOneCnr(cnrs[i], i);
         if (result) results.push(result);
       }
-    }
+
+      if (results.length === 0) {
         const detail = errors.length > 0
           ? `eCourts lookup failed:\n${errors.join('\n')}`
           : 'Unable to fetch case details. The eCourts server may be slow or unavailable.';
