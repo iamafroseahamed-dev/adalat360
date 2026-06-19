@@ -1228,6 +1228,8 @@ export default function TodaysListingsPage() {
   const [selectedRecord, setSelectedRecord] = useState<MatchedRecord | null>(null);
   const [caseDetails, setCaseDetails] = useState<CaseDetailsResponse | null>(null);
   const [caseDetailsResults, setCaseDetailsResults] = useState<CaseDetailsResponse[]>([]);
+  const [mhcResult, setMhcResult] = useState<MhcStatusResult | null>(null);
+  const [mhcLoading, setMhcLoading] = useState(false);
 
   const [captchaDialogOpen, setCaptchaDialogOpen] = useState(false);
   const [captchaValue, setCaptchaValue] = useState('');
