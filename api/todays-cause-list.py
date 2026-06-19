@@ -21,19 +21,19 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ── Supabase config ────────────────────────────────────────────────────────────
+# Loaded lazily inside do_GET so missing env vars return 503 instead of crashing
+# the module at import time (which would cause Vercel to return 500).
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise RuntimeError(
-        'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set as environment variables.'
-    )
-_SB_HEADERS = {
-    'apikey': SUPABASE_KEY,
-    'Authorization': f'Bearer {SUPABASE_KEY}',
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-}
+def _sb_headers() -> dict:
+    return {
+        'apikey': SUPABASE_KEY,
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+    }
+
 SB_TIMEOUT  = 30
 BATCH_SIZE  = 500
 MHC_XML_BASE = (
@@ -54,7 +54,7 @@ def _sb_latest_date(up_to: str) -> str | None:
         '&order=cause_date.desc'
         '&limit=1'
     )
-    resp = requests.get(url, headers=_SB_HEADERS, timeout=SB_TIMEOUT)
+    resp = requests.get(url, headers=_sb_headers(), timeout=SB_TIMEOUT)
     resp.raise_for_status()
     rows = resp.json() or []
     return rows[0]['cause_date'] if rows else None
@@ -79,7 +79,7 @@ def _sb_fetch_date(cause_date: str) -> List[Dict[str, Any]]:
             '&order=court_hall.asc,item_number.asc'
             f'&limit={page_size}&offset={offset}'
         )
-        resp = requests.get(url, headers=_SB_HEADERS, timeout=SB_TIMEOUT)
+        resp = requests.get(url, headers=_sb_headers(), timeout=SB_TIMEOUT)
         resp.raise_for_status()
         page = resp.json() or []
         all_rows.extend(page)
@@ -96,13 +96,13 @@ def _sb_delete_today(cause_date: str) -> None:
         '&court_name=eq.Madras%20High%20Court'
         '&bench=eq.Chennai'
     )
-    resp = requests.delete(url, headers=_SB_HEADERS, timeout=SB_TIMEOUT)
+    resp = requests.delete(url, headers=_sb_headers(), timeout=SB_TIMEOUT)
     resp.raise_for_status()
 
 
 def _sb_insert(rows: List[Dict[str, Any]]) -> None:
     url = f'{SUPABASE_URL}/rest/v1/daily_cause_list'
-    headers = {**_SB_HEADERS, 'Prefer': 'return=minimal'}
+    headers = {**_sb_headers(), 'Prefer': 'return=minimal'}
     for i in range(0, len(rows), BATCH_SIZE):
         batch = rows[i:i + BATCH_SIZE]
         resp = requests.post(url, headers=headers, json=batch, timeout=SB_TIMEOUT)
@@ -171,6 +171,16 @@ def _parse_mhc_xml(xml_bytes: bytes, cause_date_str: str, xml_url: str) -> List[
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
+        # Guard: fail fast with 503 if Supabase credentials are not configured
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            self._json({
+                'detail': (
+                    'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables are not set. '
+                    'Add them in the Vercel project settings → Environment Variables.'
+                )
+            }, 503)
+            return
+
         today      = date.today()
         cause_date = today.isoformat()
         qs         = parse_qs(urlparse(self.path).query)
