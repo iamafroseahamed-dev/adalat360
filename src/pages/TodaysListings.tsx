@@ -236,26 +236,21 @@ function DynamicTable({ table }: { table: CaseDetailsTable }) {
     ['pdf link', 'pdf', 'order details', 'view'].some((kw) => h.toLowerCase().includes(kw)),
   );
 
-  const openPdf = async (originalUrl: string) => {
-    const proxyUrl = `/api/proxy-pdf?url=${encodeURIComponent(originalUrl)}`;
-    // Open in a new tab; the browser will show the PDF or a backend error page
-    const win = window.open('', '_blank');
-    if (!win) { toast.error('Pop-up blocked. Allow pop-ups and try again.'); return; }
-    try {
-      const resp = await fetch(proxyUrl);
-      if (resp.ok) {
-        const blob = await resp.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        win.location.href = blobUrl;
-      } else {
-        win.close();
-        const body = await resp.json().catch(() => ({ detail: 'PDF not available.' }));
-        toast.error(body.detail ?? 'PDF not available for this case.');
-      }
-    } catch {
-      win.close();
-      toast.error('Unable to fetch PDF. Make sure the backend is running.');
-    }
+  /** Extract the bare filename from an MHC PDF URL, e.g.
+   *  https://mhc.tn.gov.in/judis/index.php/casestatus/viewpdf/ABC123
+   *  → "ABC123"
+   */
+  const extractFilename = (url: string): string => {
+    const m = url.match(/viewpdf\/([^/?#]+)/i);
+    if (m) return m[1];
+    // fallback: last path segment before any query
+    return url.split('?')[0].split('/').pop() ?? url;
+  };
+
+  const openPdf = (originalUrl: string) => {
+    const filename = extractFilename(originalUrl);
+    const viewerUrl = `https://hcmadras.tn.gov.in/order_view.php?fileName=${encodeURIComponent(filename)}`;
+    window.open(viewerUrl, '_blank', 'noopener,noreferrer');
   };
 
   const renderCell = (value: string, colIdx: number) => {
