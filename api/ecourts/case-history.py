@@ -360,12 +360,41 @@ def _parse_case_history(soup: BeautifulSoup) -> Optional[Dict[str, Any]]:
     }
 
 
+def _no_records(text: str) -> bool:
+    """Return True when eCourts explicitly says no records were found."""
+    lo = text.lower()
+    return any(phrase in lo for phrase in [
+        "no records found",
+        "no record found",
+        "case not found",
+        "invalid cnr",
+        "cnr not found",
+        "no data found",
+        "record not found",
+    ])
+
+
 def _build_response(cnr_number: str, html: str) -> Dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
+    plain_text = soup.get_text("\n", strip=True)
+
+    # eCourts explicitly returned a no-results page
+    if _no_records(plain_text):
+        return {
+            "success": False,
+            "message": f"No records found on eCourts for CNR {cnr_number}. Please verify the CNR number.",
+        }
+
     parsed = _parse_case_history(soup)
     if parsed:
+        # Sanity check: parsed but completely empty
+        if not parsed["tables"] and not parsed["summary_fields"]:
+            return {
+                "success": False,
+                "message": "eCourts returned a response but no case details were found. The case may not be listed.",
+            }
         return {
             "success": True,
             "searchType": "CNR",
@@ -374,16 +403,24 @@ def _build_response(cnr_number: str, html: str) -> Dict[str, Any]:
             "tables": parsed["tables"],
             "links": _extract_links(soup),
             "summary_fields": parsed["summary_fields"],
-            "text": soup.get_text("\n", strip=True),
+            "text": plain_text,
             "raw_html": html,
+        }
+
+    # Fallback generic extraction
+    tables = _extract_tables(soup)
+    if not tables and len(plain_text.strip()) < 100:
+        return {
+            "success": False,
+            "message": "No records found for this CNR number.",
         }
     return {
         "success": True,
         "searchType": "CNR",
         "cnr_number": cnr_number,
         "case_number": "",
-        "text": soup.get_text("\n", strip=True),
-        "tables": _extract_tables(soup),
+        "text": plain_text,
+        "tables": tables,
         "links": _extract_links(soup),
         "summary_fields": _extract_summary_fields(soup),
         "raw_html": html,
