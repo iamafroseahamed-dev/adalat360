@@ -541,25 +541,6 @@ function TimelineSection({
   );
 }
 
-// ─── CNR extraction helper ────────────────────────────────────────────────────
-
-const CNR_REGEX = /[A-Z]{4}[0-9]{12}/g;
-
-function extractCnrNumbers(record: MatchedRecord): string[] {
-  const sources = [
-    record.causeList.cnr_number ?? '',
-    record.case.cnr_number ?? '',
-    record.causeList.party_names ?? '',
-    record.causeList.case_number ?? '',
-  ];
-  const found = new Set<string>();
-  for (const src of sources) {
-    const matches = src.toUpperCase().match(CNR_REGEX) ?? [];
-    for (const m of matches) found.add(m);
-  }
-  return [...found].filter(Boolean);
-}
-
 // ─── Single-CNR panel (reused inside multi-CNR tabs) ─────────────────────────
 
 function CaseDetailPanel({
