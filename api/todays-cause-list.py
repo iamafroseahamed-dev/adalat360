@@ -171,27 +171,17 @@ def _parse_mhc_xml(xml_bytes: bytes, cause_date_str: str, xml_url: str) -> List[
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        # Guard: fail fast with 503 if Supabase credentials are not configured
-        if not SUPABASE_URL or not SUPABASE_KEY:
-            self._json({
-                'detail': (
-                    'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables are not set. '
-                    'Add them in the Vercel project settings → Environment Variables.'
-                )
-            }, 503)
-            return
-
         today      = date.today()
         cause_date = today.isoformat()
         qs         = parse_qs(urlparse(self.path).query)
         force      = qs.get('refresh', ['0'])[0] == '1'
+        has_supabase = bool(SUPABASE_URL and SUPABASE_KEY)
 
-        print(f'[cause-list] {datetime.utcnow().isoformat()} | date={cause_date} | force={force}')
+        print(f'[cause-list] {datetime.utcnow().isoformat()} | date={cause_date} | force={force} | supabase={has_supabase}')
 
-        # ── Fast path: Supabase ────────────────────────────────────────────────
-        if not force:
+        # ── Fast path: Supabase (only when credentials are configured) ────────
+        if not force and has_supabase:
             try:
-                # Find most recent available date (today or earlier)
                 latest = _sb_latest_date(cause_date)
                 if latest:
                     rows = _sb_fetch_date(latest)
@@ -202,6 +192,8 @@ class handler(BaseHTTPRequestHandler):
                 print('[cause-list] Supabase empty — fetching from MHC')
             except Exception as exc:
                 print(f'[cause-list] Supabase read failed ({exc}) — falling back to MHC')
+        elif not has_supabase:
+            print('[cause-list] Supabase not configured — fetching directly from MHC')
         else:
             print('[cause-list] Force refresh — skipping Supabase cache')
 
@@ -234,16 +226,18 @@ class handler(BaseHTTPRequestHandler):
             self._json({'detail': "No records found in today's cause list."}, 404)
             return
 
-        print(f'[cause-list] Parsed {len(parsed_rows)} rows — storing in Supabase')
-
-        # ── Store in Supabase (errors are non-fatal) ──────────────────────────
-        try:
-            if force:
-                _sb_delete_today(cause_date)
-            _sb_insert(parsed_rows)
-            print('[cause-list] Supabase write OK')
-        except Exception as exc:
-            print(f'[cause-list] Supabase write failed ({exc}) — returning data anyway')
+        # ── Store in Supabase (only when configured, errors are non-fatal) ────
+        if has_supabase:
+            print(f'[cause-list] Parsed {len(parsed_rows)} rows — storing in Supabase')
+            try:
+                if force:
+                    _sb_delete_today(cause_date)
+                _sb_insert(parsed_rows)
+                print('[cause-list] Supabase write OK')
+            except Exception as exc:
+                print(f'[cause-list] Supabase write failed ({exc}) — returning data anyway')
+        else:
+            print(f'[cause-list] Parsed {len(parsed_rows)} rows — Supabase not configured, skipping write')
 
         self._json(parsed_rows)
 
