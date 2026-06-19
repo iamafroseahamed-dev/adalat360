@@ -87,9 +87,18 @@ class handler(BaseHTTPRequestHandler):
         print(f'[cause-list] Downloading XML: {xml_url}')
 
         try:
-            xml_resp = requests.get(xml_url, timeout=(10, 30), verify=False)
+            # connect_timeout=10s, read_timeout=55s (stay within maxDuration=60s)
+            xml_resp = requests.get(xml_url, timeout=(10, 55), verify=False)
             xml_resp.raise_for_status()
             print(f'[cause-list] XML Download Status: {xml_resp.status_code}')
+        except requests.exceptions.Timeout as exc:
+            self._json({
+                'detail': (
+                    "Today's cause list XML timed out. The MHC server may be slow. "
+                    f'Detail: {exc}'
+                ),
+            }, 504)
+            return
         except requests.RequestException as exc:
             self._json({'detail': f"Today's cause list XML is not available: {exc}"}, 503)
             return
