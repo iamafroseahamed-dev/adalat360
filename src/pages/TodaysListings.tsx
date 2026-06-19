@@ -2067,9 +2067,32 @@ export default function TodaysListingsPage() {
         )}
       </div>
 
+      {/* MHC Orders Modal (primary — fast path) */}
+      <Dialog open={detailsDialogOpen && !!mhcResult && !detailsLoading} onOpenChange={(v) => { if (!v) { setDetailsDialogOpen(false); setMhcResult(null); } }}>
+        <DialogContent
+          className="flex flex-col gap-0 overflow-hidden p-0"
+          style={{ width: '90vw', maxWidth: '90vw', height: '90vh', maxHeight: '90vh' }}
+        >
+          <DialogHeader className="shrink-0 border-b bg-background px-6 py-4">
+            <DialogTitle className="text-lg">Case Orders — {selectedRecord?.causeList.case_number}</DialogTitle>
+            <DialogDescription className="text-xs">
+              Source: Madras High Court · {mhcResult?.orders?.length ?? 0} order{(mhcResult?.orders?.length ?? 0) !== 1 ? 's' : ''} found
+            </DialogDescription>
+          </DialogHeader>
+          {mhcResult && (
+            <MhcOrderPanel
+              result={mhcResult}
+              onLoadHistory={loadEcourtsHistory}
+              loadingHistory={mhcLoading}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* eCourts Case History Modal (secondary — full details) */}
       <CaseDetailsModal
-        open={detailsDialogOpen}
-        onOpenChange={setDetailsDialogOpen}
+        open={detailsDialogOpen && !mhcResult}
+        onOpenChange={(v) => { if (!v) setDetailsDialogOpen(false); }}
         loading={detailsLoading}
         loadingMessage={loadingMessage}
         error={detailsError}
