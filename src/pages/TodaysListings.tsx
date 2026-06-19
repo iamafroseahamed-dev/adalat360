@@ -557,9 +557,6 @@ function extractCnrNumbers(record: MatchedRecord): string[] {
     const matches = src.toUpperCase().match(CNR_REGEX) ?? [];
     for (const m of matches) found.add(m);
   }
-  // Also include plain cnr_number even if it doesn't match the regex
-  const plain = (record.causeList.cnr_number ?? record.case.cnr_number ?? '').trim().toUpperCase();
-  if (plain) found.add(plain);
   return [...found].filter(Boolean);
 }
 
@@ -815,7 +812,14 @@ function CaseDetailsModal({
         {!loading && error && (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
             <p className="text-sm font-medium text-destructive">Unable to fetch case details.</p>
-            <p className="text-xs text-muted-foreground">{error}</p>
+            <p className="text-xs text-muted-foreground whitespace-pre-wrap max-w-md">{error}</p>
+            {error.includes('HTTP 500') && (
+              <p className="text-xs text-amber-700 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 max-w-md">
+                eCourts lookups require more than 10 seconds. This works when running
+                locally via <code className="font-mono">npm run dev</code>.
+                On Vercel production, upgrade to Pro plan for a 60-second function timeout.
+              </p>
+            )}
             <Button variant="outline" size="sm" onClick={onRetry}>Retry</Button>
           </div>
         )}
