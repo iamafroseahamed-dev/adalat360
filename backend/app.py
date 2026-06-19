@@ -423,6 +423,32 @@ def _parse_mhc_xml(xml_bytes: bytes, cause_date_str: str, xml_url: str) -> List[
     return rows
 
 
+_SB_HEADERS = {
+    'apikey': settings.SUPABASE_SERVICE_ROLE_KEY,
+    'Authorization': f'Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}',
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+}
+_SB_BATCH = 500
+
+
+def _supabase_sync(rows: List[Dict[str, Any]], cause_date_str: str) -> None:
+    """Delete today's rows then bulk-insert fresh ones into Supabase."""
+    base = f'{settings.SUPABASE_URL}/rest/v1/daily_cause_list'
+    delete_url = (
+        f'{base}?cause_date=eq.{cause_date_str}'
+        '&court_name=eq.Madras%20High%20Court&bench=eq.Chennai'
+    )
+    requests.delete(delete_url, headers=_SB_HEADERS, timeout=30)
+
+    insert_headers = {**_SB_HEADERS, 'Prefer': 'return=minimal'}
+    for i in range(0, len(rows), _SB_BATCH):
+        batch = rows[i:i + _SB_BATCH]
+        resp = requests.post(base, headers=insert_headers, json=batch, timeout=30)
+        resp.raise_for_status()
+    print(f'[cause-list] Supabase sync complete: {len(rows)} rows for {cause_date_str}')
+
+
 @app.get('/api/todays-cause-list')
 def get_todays_cause_list() -> JSONResponse:
     today = date.today()
@@ -462,6 +488,13 @@ def get_todays_cause_list() -> JSONResponse:
         raise HTTPException(status_code=404, detail="No records found in today's cause list XML.")
 
     print(f'[cause-list] Parsed Rows: {len(parsed_rows)}')
+
+    # Write to Supabase so Vercel can serve from there (fast path)
+    try:
+        _supabase_sync(parsed_rows, cause_date_str)
+    except Exception as exc:
+        print(f'[cause-list] Supabase sync failed (non-fatal): {exc}')
+
     print(f'[cause-list] Returned Rows: {len(parsed_rows)}')
 
     return JSONResponse(
