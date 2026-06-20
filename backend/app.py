@@ -25,10 +25,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl
 from pydantic_settings import BaseSettings
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(ROOT_DIR / '.env', override=False)
+dotenv_config = dotenv_values(ROOT_DIR / '.env')
+os.environ.setdefault('VITE_SUPABASE_URL', dotenv_config.get('VITE_SUPABASE_URL', ''))
+os.environ.setdefault('VITE_SUPABASE_PUBLISHABLE_KEY', dotenv_config.get('VITE_SUPABASE_PUBLISHABLE_KEY', ''))
 os.environ.setdefault('SUPABASE_URL', os.environ.get('VITE_SUPABASE_URL', ''))
 os.environ.setdefault('SUPABASE_SERVICE_ROLE_KEY', os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', ''))
 
