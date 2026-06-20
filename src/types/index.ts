@@ -187,7 +187,9 @@ export interface TodayMatchedListing {
   respondent: string | null;
   match_type: string;
   match_status: string;
-  notification_status: string;
+  notification_status: string | null;
+  notification_count: number | null;
+  notification_sent_at: string | null;
   // eCourts enrichment fields (populated lazily, not during matching)
   latest_case_status: string | null;
   latest_stage: string | null;

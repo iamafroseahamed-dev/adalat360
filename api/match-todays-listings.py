@@ -55,6 +55,7 @@ ECOURTS_BUDGET_S  = 45        # wall-clock seconds for all enrichment
 # Columns that definitely exist in the table (used as fallback in safe-upsert).
 BASE_COLS = frozenset({
     'listed_date', 'match_date',
+    'organization_id',
     'case_id', 'daily_cause_list_id',
     'case_number', 'cnr_number', 'court_hall', 'item_number',
     'judge_name', 'stage', 'petitioner', 'respondent',
@@ -804,12 +805,14 @@ def _notify_listings(listed_date: str) -> None:
     Never raises — failures must not break the matching job.
     """
     try:
-        # Fetch all pending listings sorted by court hall / item
+        # Fetch all pending listings sorted by court hall / item.
+        # Also pick up any 'not_notified' rows in case the mark-pending PATCH
+        # failed on a previous run — belt-and-suspenders.
         pending = _get_all('today_matched_listings', {
             'select': ('id,case_number,cnr_number,listed_date,court_hall,'
                        'item_number,judge_name,petitioner,respondent,stage,notification_count'),
             'listed_date':         f'eq.{listed_date}',
-            'notification_status': 'eq.pending',
+            'notification_status': 'in.(pending,not_notified)',
             'order':               'court_hall.asc,item_number.asc',
         })
         if not pending:
@@ -1077,6 +1080,7 @@ class handler(BaseHTTPRequestHandler):
                 base_matches.append({
                     'listed_date':         today,
                     'match_date':          today,
+                    'organization_id':     c.get('organization_id'),
                     'case_id':             c['id'],
                     'daily_cause_list_id': matched_cl['id'],
                     'case_number':         matched_cl.get('case_number'),
@@ -1089,10 +1093,8 @@ class handler(BaseHTTPRequestHandler):
                     'respondent':          matched_cl.get('respondent'),
                     'match_type':          match_type,
                     'match_status':        'matched',
-                    # notification_status is intentionally omitted here so the DB
-                    # default 'not_notified' applies only to genuinely new rows.
-                    # merge-duplicates will not overwrite the value on re-runs,
-                    # preserving 'notified' for already-sent records.
+                    # notification_status intentionally omitted: DB default 'not_notified'
+                    # applies to new rows; merge-duplicates preserves existing value.
                     'cnr_status':          'discovered' if case_cnr else 'not_discovered',
                     'ecourts_sync_status': 'pending',
                 })
@@ -1111,7 +1113,7 @@ class handler(BaseHTTPRequestHandler):
             # 6a. Mark only newly inserted rows as 'pending' so the notifier picks
             #     them up. Rows that are already 'notified' are untouched.
             try:
-                requests.patch(
+                patch_r = requests.patch(
                     f'{SUPABASE_URL}/rest/v1/today_matched_listings',
                     headers=_sb_headers(),
                     params={
@@ -1121,6 +1123,10 @@ class handler(BaseHTTPRequestHandler):
                     json={'notification_status': 'pending'},
                     timeout=15,
                 )
+                if not patch_r.ok:
+                    print(f'[notify] mark-pending PATCH failed {patch_r.status_code}: {patch_r.text[:200]}')
+                else:
+                    print(f'[notify] mark-pending PATCH ok ({patch_r.status_code})')
             except Exception as exc:
                 print(f'[notify] mark-pending error (non-fatal): {exc}')
 

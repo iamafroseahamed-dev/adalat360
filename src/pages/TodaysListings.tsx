@@ -31,18 +31,19 @@ type SortDir   = 'asc' | 'desc';
 
 const PAGE_SIZE = 20;
 
-function NotifBadge({ status }: { status: string | null }) {
+function NotifBadge({ status, count }: { status: string | null | undefined; count?: number | null }) {
   const map: Record<string, { label: string; variant: 'secondary' | 'success' | 'warning' | 'destructive' | 'outline' }> = {
     pending:       { label: 'Pending',       variant: 'warning'     },
     notified:      { label: 'Notified',      variant: 'success'     },
     partial:       { label: 'Partial',       variant: 'warning'     },
     failed:        { label: 'Failed',        variant: 'destructive' },
     no_recipients: { label: 'No Recipients', variant: 'outline'     },
-    not_notified:  { label: 'Pending',       variant: 'secondary'   },
+    not_notified:  { label: 'Not Sent',      variant: 'secondary'   },
   };
-  const entry = map[status ?? ''];
-  if (!entry) return null;
-  return <Badge variant={entry.variant} className="text-[10px] whitespace-nowrap">{entry.label}</Badge>;
+  const key = (status ?? '').trim();
+  const entry = map[key] ?? { label: 'Not Sent', variant: 'secondary' as const };
+  const label = count != null && count > 0 ? `${entry.label} (${count})` : entry.label;
+  return <Badge variant={entry.variant} className="text-[10px] whitespace-nowrap">{label}</Badge>;
 }
 
 function SummaryCard({ title, value }: { title: string; value: number | string }) {
@@ -268,10 +269,11 @@ export default function TodaysListingsPage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <SummaryCard title="Matched in Range" value={loading ? '\u2014' : listings.length} />
-        <SummaryCard title="With CNR"         value={loading ? '\u2014' : listings.filter(r => r.cnr_number).length} />
-        <SummaryCard title="Without CNR"      value={loading ? '\u2014' : listings.filter(r => !r.cnr_number).length} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <SummaryCard title="Matched in Range" value={loading ? '—' : listings.length} />
+        <SummaryCard title="Notified"         value={loading ? '—' : listings.filter(r => r.notification_status === 'notified' || r.notification_status === 'partial').length} />
+        <SummaryCard title="Not Sent"         value={loading ? '—' : listings.filter(r => !r.notification_status || r.notification_status === 'not_notified' || r.notification_status === 'pending' || r.notification_status === 'failed').length} />
+        <SummaryCard title="With CNR"         value={loading ? '—' : listings.filter(r => r.cnr_number).length} />
       </div>
 
       {/* Filters */}
@@ -474,7 +476,10 @@ export default function TodaysListingsPage() {
                           {record.case?.cla_party_status ?? '\u2014'}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          <NotifBadge status={record.notification_status} />
+                          <NotifBadge
+                            status={record.notification_status}
+                            count={record.notification_count}
+                          />
                         </TableCell>
                       </TableRow>,
 
