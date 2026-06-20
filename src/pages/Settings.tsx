@@ -95,8 +95,13 @@ export default function Settings() {
       setDialog(null);
       await load();
     } catch (e) {
+      console.error('[Settings] save failed:', e);
       const msg = e instanceof Error ? e.message : String(e);
-      toast.error('Save failed: ' + (msg.includes('row-level') ? 'Permission denied. Run migration 010_fix_rls.sql in Supabase.' : msg));
+      if (msg.includes('row-level') || msg.includes('RLS') || msg.includes('policy')) {
+        toast.error('Permission denied. Run migration 010_fix_rls.sql in Supabase SQL Editor.');
+      } else {
+        toast.error(msg || 'Save failed. Please try again.');
+      }
     } finally {
       setSaving(false);
     }
