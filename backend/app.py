@@ -19,11 +19,18 @@ import urllib3
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 from pydantic_settings import BaseSettings
+
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT_DIR / '.env', override=False)
+os.environ.setdefault('SUPABASE_URL', os.environ.get('VITE_SUPABASE_URL', ''))
+os.environ.setdefault('SUPABASE_SERVICE_ROLE_KEY', os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', ''))
 
 try:
     import uvicorn
@@ -43,8 +50,8 @@ except ImportError:
 
 class Settings(BaseSettings):
     DATABASE_URL: Optional[str] = None
-    SUPABASE_URL: str = ''
-    SUPABASE_SERVICE_ROLE_KEY: str = ''
+    SUPABASE_URL: str = Field(default='', validation_alias='VITE_SUPABASE_URL')
+    SUPABASE_SERVICE_ROLE_KEY: str = Field(default='', validation_alias='VITE_SUPABASE_PUBLISHABLE_KEY')
     MHC_TIMEOUT_SECONDS: int = 60  # read timeout; connect timeout is fixed at 10s
 
     class Config:
@@ -54,7 +61,6 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
@@ -451,17 +457,17 @@ def get_matched_listings() -> List[Dict[str, Any]]:
 
 
 @app.get('/api/notification-settings/msg91')
-def read_msg91_settings(organization_id: str) -> Dict[str, Any]:
+def read_msg91_settings(organization_id: str, http_request: Request) -> Dict[str, Any]:
     try:
-        return get_msg91_settings(organization_id)
+        return get_msg91_settings(organization_id, http_request.headers.get('authorization', ''))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f'Unable to load MSG91 settings: {exc}') from exc
 
 
 @app.post('/api/notification-settings/msg91')
-def write_msg91_settings(request: Msg91SettingsRequest) -> Dict[str, Any]:
+def write_msg91_settings(request: Msg91SettingsRequest, http_request: Request) -> Dict[str, Any]:
     try:
-        return save_msg91_settings(request.organization_id, request.model_dump())
+        return save_msg91_settings(request.organization_id, request.model_dump(), http_request.headers.get('authorization', ''))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -469,8 +475,11 @@ def write_msg91_settings(request: Msg91SettingsRequest) -> Dict[str, Any]:
 
 
 @app.post('/api/match-todays-listings')
-def refresh_matched_listings() -> JSONResponse:
+def refresh_matched_listings(http_request: Request) -> JSONResponse:
     today = date.today().isoformat()
+    auth_header = http_request.headers.get('authorization', '')
+    supabase_url = settings.SUPABASE_URL or os.environ.get('VITE_SUPABASE_URL', '').rstrip('/')
+    supabase_key = settings.SUPABASE_SERVICE_ROLE_KEY or os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', '')
     query_latest_sql = '''
         SELECT MAX(cause_date) AS cause_date
         FROM daily_cause_list
@@ -615,21 +624,26 @@ def refresh_matched_listings() -> JSONResponse:
                     ),
                 })
 
-        if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_ROLE_KEY:
+        if not supabase_url or not supabase_key:
             raise HTTPException(
                 status_code=503,
-                detail='SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured to refresh matched listings.',
+                detail='Supabase URL and key must be configured to refresh matched listings.',
+            )
+        if not auth_header and not settings.SUPABASE_SERVICE_ROLE_KEY:
+            raise HTTPException(
+                status_code=503,
+                detail='Please sign in again so the refresh can use your Supabase session.',
             )
 
         sb_headers = {
-            'apikey': settings.SUPABASE_SERVICE_ROLE_KEY,
-            'Authorization': f'Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}',
+            'apikey': supabase_key,
+            'Authorization': auth_header or f'Bearer {supabase_key}',
             'Accept': 'application/json',
             'Content-Type': 'application/json',
         }
 
         latest_resp = requests.get(
-            f'{settings.SUPABASE_URL}/rest/v1/daily_cause_list',
+            f'{supabase_url}/rest/v1/daily_cause_list',
             headers=sb_headers,
             params={
                 'select': 'cause_date',
@@ -658,7 +672,7 @@ def refresh_matched_listings() -> JSONResponse:
             page_size = 1000
             while True:
                 resp = requests.get(
-                    f'{settings.SUPABASE_URL}/rest/v1/{table}',
+                    f'{supabase_url}/rest/v1/{table}',
                     headers={**sb_headers, 'Range-Unit': 'items', 'Range': f'{offset}-{offset + page_size - 1}'},
                     params=params,
                     timeout=settings.MHC_TIMEOUT_SECONDS,
@@ -688,7 +702,7 @@ def refresh_matched_listings() -> JSONResponse:
         matched_rows = _build_matches(cause_rows, case_rows, latest_date)
         if matched_rows:
             insert_resp = requests.post(
-                f'{settings.SUPABASE_URL}/rest/v1/today_matched_listings',
+                f'{supabase_url}/rest/v1/today_matched_listings',
                 headers={**sb_headers, 'Prefer': 'resolution=merge-duplicates,return=minimal'},
                 params={'on_conflict': 'listed_date,case_id,daily_cause_list_id'},
                 json=matched_rows,
@@ -755,10 +769,13 @@ def get_todays_cause_list() -> JSONResponse:
     cause_date_str = date.today().isoformat()
     print(f'[cause-list] Reading from Supabase | date={cause_date_str}')
 
-    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_ROLE_KEY:
+    supabase_url = settings.SUPABASE_URL or os.environ.get('VITE_SUPABASE_URL', '').rstrip('/')
+    supabase_key = settings.SUPABASE_SERVICE_ROLE_KEY or os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', '')
+
+    if not supabase_url or not supabase_key:
         raise HTTPException(
             status_code=503,
-            detail='SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured in the environment.',
+            detail='Supabase URL and key must be configured in the environment.',
         )
 
     try:
@@ -766,12 +783,20 @@ def get_todays_cause_list() -> JSONResponse:
         if not rows:
             # Fall back to the most recent available date
             latest_url = (
-                f'{settings.SUPABASE_URL}/rest/v1/daily_cause_list'
+                f'{supabase_url}/rest/v1/daily_cause_list'
                 f'?cause_date=lte.{cause_date_str}'
                 '&court_name=eq.Madras%20High%20Court&bench=eq.Chennai'
                 '&select=cause_date&order=cause_date.desc&limit=1'
             )
-            r = requests.get(latest_url, headers=_SB_HEADERS, timeout=30)
+            r = requests.get(
+                latest_url,
+                headers={
+                    'apikey': supabase_key,
+                    'Authorization': f'Bearer {supabase_key}',
+                    'Accept': 'application/json',
+                },
+                timeout=30,
+            )
             r.raise_for_status()
             latest = r.json() or []
             if latest:

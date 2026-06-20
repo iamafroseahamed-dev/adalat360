@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { TodayMatchedListing, HearingEntry } from '@/types';
+import { useAuth } from '@/lib/auth';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,35 @@ function fmtDate(iso: string | null | undefined) {
   return new Date(iso).toLocaleDateString('en-IN', {
     day: '2-digit', month: 'short', year: 'numeric',
   });
+}
+
+function normalizeCaseNumber(value: string | null | undefined) {
+  if (!value) return '';
+  const normalized = value
+    .toUpperCase()
+    .replace(/(?<=[A-Z])\.(?=[A-Z(])/g, '')
+    .replace(/(?<=\)\.)/g, '')
+    .replace(/\./g, ' ')
+    .replace(/\bNO\b/g, '')
+    .replace(/\bNUMBER\b/g, '')
+    .replace(/\bOF\b/g, '/')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const parts = normalized.split(/\s*\/\s*|\s+/).filter(Boolean);
+  if (parts.length >= 3) {
+    const numIndex = parts.findIndex(part => /^\d+$/.test(part));
+    if (numIndex >= 1 && numIndex + 1 < parts.length) {
+      const caseType = parts.slice(0, numIndex).join('');
+      const caseNo = parts[numIndex].replace(/\D/g, '').replace(/^0+/, '') || '0';
+      const caseYear = parts[numIndex + 1].replace(/\D/g, '');
+      if (caseType && /^\d{2,4}$/.test(caseYear)) return `${caseType}/${caseNo}/${caseYear}`;
+    }
+    const caseType = parts[0];
+    const caseNo = parts[1].replace(/\D/g, '').replace(/^0+/, '') || '0';
+    const caseYear = parts[2].replace(/\D/g, '');
+    if (caseType && /^\d{2,4}$/.test(caseYear)) return `${caseType}/${caseNo}/${caseYear}`;
+  }
+  return normalized.replace(/[^A-Z0-9]/g, '');
 }
 
 type SortField = 'listed_date' | 'court_hall' | 'item_number' | 'case_number' | 'next_hearing_date';
@@ -59,6 +89,7 @@ function SummaryCard({ title, value }: { title: string; value: number | string }
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function TodaysListingsPage() {
+  const { user } = useAuth();
   const [loading, setLoading]             = useState(true);
   const [error,   setError]               = useState<string | null>(null);
   const [listings, setListings]           = useState<TodayMatchedListing[]>([]);
@@ -81,6 +112,102 @@ export default function TodaysListingsPage() {
   const [sortField, setSortField] = useState<SortField>('court_hall');
   const [sortDir,   setSortDir  ] = useState<SortDir>('asc');
   const [page, setPage]           = useState(1);
+
+  async function authHeaders() {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+  }
+
+  const refreshListingsLocally = useCallback(async () => {
+    const orgId = user?.profile?.organization_id;
+    if (!orgId) {
+      throw new Error('Your organization is not available yet.');
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const lookahead = new Date(`${today}T00:00:00Z`);
+    lookahead.setUTCDate(lookahead.getUTCDate() + 7);
+    const latestLimit = lookahead.toISOString().slice(0, 10);
+
+    const { data: latestRows, error: latestError } = await supabase
+      .from('daily_cause_list')
+      .select('cause_date')
+      .lte('cause_date', latestLimit)
+      .eq('court_name', 'Madras High Court')
+      .eq('bench', 'Chennai')
+      .order('cause_date', { ascending: false })
+      .limit(1);
+    if (latestError) throw latestError;
+
+    const latestDate = latestRows?.[0]?.cause_date;
+    if (!latestDate) throw new Error('No cause list data available to refresh.');
+
+    const { data: causeRows, error: causeError } = await supabase
+      .from('daily_cause_list')
+      .select('id,cause_date,court_hall,item_number,cnr_number,case_number,petitioner,respondent,judge_name,last_hearing_or_stage')
+      .eq('cause_date', latestDate)
+      .eq('court_name', 'Madras High Court')
+      .eq('bench', 'Chennai')
+      .order('court_hall', { ascending: true })
+      .order('item_number', { ascending: true });
+    if (causeError) throw causeError;
+
+    const { data: caseRows, error: caseError } = await supabase
+      .from('cases')
+      .select('id,organization_id,cnr_number,case_number')
+      .eq('active', true)
+      .eq('organization_id', orgId);
+    if (caseError) throw caseError;
+
+    const byCnr = new Map<string, (typeof caseRows)[number]>();
+    const byCase = new Map<string, (typeof caseRows)[number]>();
+    for (const row of caseRows ?? []) {
+      const cnr = (row.cnr_number ?? '').trim().toUpperCase();
+      const caseNumber = normalizeCaseNumber(row.case_number);
+      if (cnr) byCnr.set(cnr, row);
+      if (caseNumber) byCase.set(caseNumber, row);
+    }
+
+    const matchedRows: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    for (const causeRow of causeRows ?? []) {
+      const cnrRaw = (causeRow.cnr_number ?? '').trim();
+      const caseRaw = (causeRow.case_number ?? '').trim();
+      const match = cnrRaw ? byCnr.get(cnrRaw.toUpperCase()) : byCase.get(normalizeCaseNumber(caseRaw));
+      if (!match) continue;
+      const seenKey = `${match.id}:${causeRow.id}`;
+      if (seen.has(seenKey)) continue;
+      seen.add(seenKey);
+      matchedRows.push({
+        listed_date: latestDate,
+        match_date: latestDate,
+        organization_id: match.organization_id,
+        case_id: match.id,
+        daily_cause_list_id: causeRow.id,
+        case_number: causeRow.case_number,
+        cnr_number: cnrRaw || null,
+        court_hall: causeRow.court_hall,
+        item_number: causeRow.item_number != null ? String(causeRow.item_number).trim() : null,
+        judge_name: causeRow.judge_name,
+        stage: causeRow.last_hearing_or_stage,
+        petitioner: causeRow.petitioner,
+        respondent: causeRow.respondent,
+        match_type: cnrRaw ? 'cnr' : 'case_number',
+        match_status: 'matched',
+      });
+    }
+
+    if (!matchedRows.length) {
+      throw new Error('No matching listings found to refresh.');
+    }
+
+    const { error: upsertError } = await supabase
+      .from('today_matched_listings')
+      .upsert(matchedRows, { onConflict: 'listed_date,case_id,daily_cause_list_id' });
+    if (upsertError) throw upsertError;
+
+    return { latestDate, matchedCount: matchedRows.length };
+  }, [user?.profile?.organization_id]);
 
   function toggleRow(id: string) {
     setExpandedRows(prev => {
@@ -170,7 +297,7 @@ export default function TodaysListingsPage() {
   const refreshListings = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const res  = await fetch('/api/match-todays-listings', { method: 'POST' });
+      const res  = await fetch('/api/match-todays-listings', { method: 'POST', headers: await authHeaders() });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(data?.detail || data?.message || `Refresh failed with status ${res.status}`);
@@ -184,11 +311,19 @@ export default function TodaysListingsPage() {
           : 'Listings refreshed.',
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Unable to refresh listings. Please try again.');
+      try {
+        const localResult = await refreshListingsLocally();
+        setListedDateFrom(defaultDate);
+        setListedDateTo(defaultDate);
+        await fetchData();
+        toast.success(`${localResult.matchedCount} records matched for ${localResult.latestDate}.`);
+      } catch (localErr) {
+        toast.error(localErr instanceof Error ? localErr.message : (err instanceof Error ? err.message : 'Unable to refresh listings. Please try again.'));
+      }
     } finally {
       setIsRefreshing(false);
     }
-  }, [defaultDate, fetchData]);
+  }, [authHeaders, defaultDate, fetchData, refreshListingsLocally]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

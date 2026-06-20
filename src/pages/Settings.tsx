@@ -53,6 +53,11 @@ export default function Settings() {
   const [msg91WhatsappFlowId, setMsg91WhatsappFlowId] = useState('');
   const [msg91Configured, setMsg91Configured] = useState(false);
 
+  async function authHeaders() {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
@@ -69,7 +74,10 @@ export default function Settings() {
     if (!orgId) return;
     setProviderLoading(true);
     try {
-      const res = await fetch(`/api/notification-settings/msg91?organization_id=${encodeURIComponent(orgId)}`);
+      const res = await fetch(
+        `/api/notification-settings/msg91?organization_id=${encodeURIComponent(orgId)}`,
+        { headers: await authHeaders() },
+      );
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.detail || data?.message || 'Unable to load MSG91 settings.');
       setMsg91Configured(Boolean(data?.auth_key_present));
@@ -168,7 +176,7 @@ export default function Settings() {
     try {
       const res = await fetch('/api/notification-settings/msg91', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({
           organization_id: orgId,
           auth_key: msg91AuthKey.trim() || null,

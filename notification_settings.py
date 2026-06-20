@@ -12,18 +12,22 @@ PROVIDER_NAME = 'msg91'
 
 
 def _supabase_url() -> str:
-    return os.environ.get('SUPABASE_URL', '').rstrip('/')
+    return (os.environ.get('SUPABASE_URL', '') or os.environ.get('VITE_SUPABASE_URL', '')).rstrip('/')
 
 
 def _supabase_key() -> str:
-    return os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+    return (
+        os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+        or os.environ.get('SUPABASE_ANON_KEY', '')
+        or os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', '')
+    )
 
 
-def _headers() -> Dict[str, str]:
+def _headers(auth_token: str = '') -> Dict[str, str]:
     key = _supabase_key()
     return {
         'apikey': key,
-        'Authorization': f'Bearer {key}',
+        'Authorization': auth_token or f'Bearer {key}',
         'Content-Type': 'application/json',
         'Accept': 'application/json',
     }
@@ -31,7 +35,7 @@ def _headers() -> Dict[str, str]:
 
 def _require_configured() -> None:
     if not _supabase_url() or not _supabase_key():
-        raise RuntimeError('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured.')
+        raise RuntimeError('SUPABASE URL and Supabase key must be configured.')
 
 
 def _normalize_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -60,11 +64,11 @@ def _settings_response(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def get_msg91_settings(organization_id: str) -> Dict[str, Any]:
+def get_msg91_settings(organization_id: str, auth_token: str = '') -> Dict[str, Any]:
     _require_configured()
     resp = requests.get(
         f'{_supabase_url()}/rest/v1/notification_providers',
-        headers=_headers(),
+        headers=_headers(auth_token),
         params={
             'select': 'id,organization_id,provider_type,provider_name,config,active,created_at,updated_at',
             'organization_id': f'eq.{organization_id}',
@@ -80,17 +84,17 @@ def get_msg91_settings(organization_id: str) -> Dict[str, Any]:
     return _settings_response(rows[0] if rows else None)
 
 
-def save_msg91_settings(organization_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def save_msg91_settings(organization_id: str, payload: Dict[str, Any], auth_token: str = '') -> Dict[str, Any]:
     _require_configured()
 
     base_payload = _normalize_payload(payload)
 
-    existing = get_msg91_settings(organization_id)
+    existing = get_msg91_settings(organization_id, auth_token)
     existing_row = None
     if existing.get('id'):
         existing_resp = requests.get(
             f'{_supabase_url()}/rest/v1/notification_providers',
-            headers=_headers(),
+            headers=_headers(auth_token),
             params={
                 'select': 'id,config',
                 'id': f'eq.{existing["id"]}',
@@ -127,7 +131,7 @@ def save_msg91_settings(organization_id: str, payload: Dict[str, Any]) -> Dict[s
     if existing_row and existing_row.get('id'):
         resp = requests.patch(
             f'{_supabase_url()}/rest/v1/notification_providers',
-            headers={**_headers(), 'Prefer': 'return=minimal'},
+            headers={**_headers(auth_token), 'Prefer': 'return=minimal'},
             params={'id': f'eq.{existing_row["id"]}'},
             json=row_payload,
             timeout=30,
@@ -138,7 +142,7 @@ def save_msg91_settings(organization_id: str, payload: Dict[str, Any]) -> Dict[s
         row_payload['created_at'] = now_iso
         resp = requests.post(
             f'{_supabase_url()}/rest/v1/notification_providers',
-            headers={**_headers(), 'Prefer': 'return=minimal'},
+            headers={**_headers(auth_token), 'Prefer': 'return=minimal'},
             json=row_payload,
             timeout=30,
         )
