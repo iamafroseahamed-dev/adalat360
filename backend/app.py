@@ -1,5 +1,5 @@
 import base64
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import json
 import os
 import re
@@ -324,6 +324,220 @@ def _normalize_case_number(value: Optional[str]) -> str:
     return re.sub(r'[^A-Z0-9]', '', value)
 
 
+def _extract_hearing_history(details: Dict[str, Any]) -> List[Dict[str, Any]]:
+    tables = details.get('tables') if isinstance(details, dict) else []
+    if not isinstance(tables, list):
+        return []
+
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        if str(table.get('title') or '').strip().lower() != 'history of case hearing':
+            continue
+
+        headers = [str(header).strip() for header in table.get('headers') or []]
+        rows = table.get('rows') or []
+        history: List[Dict[str, Any]] = []
+
+        for row in rows[:10]:
+            if not isinstance(row, list):
+                continue
+            normalized_row = [clean_text(cell) for cell in row]
+            row_map = {
+                headers[index].lower(): normalized_row[index]
+                for index in range(min(len(headers), len(normalized_row)))
+                if headers[index]
+            }
+
+            hearing_date = row_map.get('hearing date') or row_map.get('business on date') or row_map.get('date') or ''
+            business = row_map.get('cause list type') or row_map.get('business') or row_map.get('business on date') or ''
+            stage = row_map.get('purpose of hearing') or row_map.get('stage') or row_map.get('cause list type') or ''
+            remarks = row_map.get('purpose of hearing') or row_map.get('remarks') or row_map.get('stage') or ''
+
+            history.append({
+                'date': hearing_date,
+                'business': business,
+                'stage': stage,
+                'remarks': remarks,
+            })
+
+        return history
+
+    return []
+
+
+def _extract_case_snapshot(details: Dict[str, Any], *, case_number: str, cnr_number: str) -> Dict[str, Any]:
+    summary = details.get('summary_fields') if isinstance(details, dict) else {}
+    if not isinstance(summary, dict):
+        summary = {}
+
+    hearing_history = _extract_hearing_history(details)
+    latest_hearing = hearing_history[0] if hearing_history else {}
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    latest_case_status = clean_text(summary.get('Case Status') or summary.get('Status') or '')
+    latest_stage = clean_text(summary.get('Next Hearing Purpose') or latest_hearing.get('stage') or latest_case_status or '')
+    next_hearing_date = clean_text(summary.get('Next Hearing Date') or '')
+    latest_hearing_date = clean_text(latest_hearing.get('date') or summary.get('Last Hearing Date') or '')
+    latest_hearing_remarks = clean_text(
+        latest_hearing.get('remarks')
+        or latest_hearing.get('business')
+        or summary.get('Next Hearing Purpose')
+        or summary.get('Case Status')
+        or '',
+    )
+
+    return {
+        'case_number': clean_text(details.get('case_number') or case_number),
+        'cnr_number': clean_text(details.get('cnr_number') or cnr_number),
+        'latest_case_status': latest_case_status or None,
+        'latest_stage': latest_stage or None,
+        'latest_hearing_date': latest_hearing_date or None,
+        'latest_hearing_remarks': latest_hearing_remarks or None,
+        'latest_business': clean_text(latest_hearing.get('business') or '') or None,
+        'next_hearing_date': next_hearing_date or None,
+        'hearing_history': hearing_history[:10] or None,
+        'ecourts_sync_status': 'done',
+        'ecourts_error': None,
+        'ecourts_synced_at': now_iso,
+    }
+
+
+def _patch_case_after_enrichment(
+    supabase_url: str,
+    sb_headers: Dict[str, str],
+    case_id: str,
+    snapshot: Dict[str, Any],
+) -> None:
+    patch: Dict[str, Any] = {
+        'updated_at': snapshot.get('ecourts_synced_at') or datetime.now(timezone.utc).isoformat(),
+        'ecourts_last_synced_at': snapshot.get('ecourts_synced_at') or datetime.now(timezone.utc).isoformat(),
+    }
+
+    if snapshot.get('latest_case_status'):
+        patch['case_status'] = snapshot['latest_case_status']
+    if snapshot.get('latest_hearing_date'):
+        patch['last_hearing_date'] = snapshot['latest_hearing_date']
+    if snapshot.get('latest_hearing_remarks'):
+        patch['last_hearing_update'] = snapshot['latest_hearing_remarks']
+    if snapshot.get('next_hearing_date'):
+        patch['next_hearing_date'] = snapshot['next_hearing_date']
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', snapshot['next_hearing_date']):
+            try:
+                if snapshot['next_hearing_date'] >= date.today().isoformat():
+                    patch['follow_up_status'] = 'Active'
+            except Exception:
+                pass
+
+    if len(patch) <= 2:
+        return
+
+    resp = requests.patch(
+        f'{supabase_url}/rest/v1/cases',
+        headers=sb_headers,
+        params={'id': f'eq.{case_id}'},
+        json=patch,
+        timeout=settings.MHC_TIMEOUT_SECONDS,
+    )
+    resp.raise_for_status()
+
+
+def _notify_pending_listings(
+    supabase_url: str,
+    sb_headers: Dict[str, str],
+    listed_date: str,
+) -> int:
+    pending_resp = requests.get(
+        f'{supabase_url}/rest/v1/today_matched_listings',
+        headers=sb_headers,
+        params={
+            'select': 'id,case_number,cnr_number,listed_date,court_hall,item_number,judge_name,petitioner,respondent,stage,notification_count',
+            'listed_date': f'eq.{listed_date}',
+            'notification_status': 'in.(pending,not_notified)',
+            'order': 'court_hall.asc,item_number.asc',
+            'limit': '1000',
+        },
+        timeout=settings.MHC_TIMEOUT_SECONDS,
+    )
+    pending_resp.raise_for_status()
+    pending = pending_resp.json() or []
+    if not pending:
+        return 0
+
+    recipient_resp = requests.get(
+        f'{supabase_url}/rest/v1/system_notification_recipients',
+        headers=sb_headers,
+        params={
+            'select': 'id,name,email,notify_email',
+            'active': 'eq.true',
+            'limit': '1000',
+        },
+        timeout=settings.MHC_TIMEOUT_SECONDS,
+    )
+    recipient_resp.raise_for_status()
+    recipients = recipient_resp.json() or []
+    email_recipients = [
+        rec for rec in recipients
+        if rec.get('notify_email') and rec.get('email')
+    ]
+
+    if not email_recipients:
+        for match in pending:
+            requests.patch(
+                f'{supabase_url}/rest/v1/today_matched_listings',
+                headers=sb_headers,
+                params={'id': f'eq.{match["id"]}'},
+                json={
+                    'notification_status': 'no_recipients',
+                    'notification_sent_at': datetime.now(timezone.utc).isoformat(),
+                },
+                timeout=settings.MHC_TIMEOUT_SECONDS,
+            )
+        return 0
+
+    subject = f'Litigo Alert - {len(pending)} Case{"s" if len(pending) != 1 else ""} Listed ({listed_date})'
+    body_lines = [
+        f'{len(pending)} tracked case{"s have" if len(pending) != 1 else " has"} been listed on {listed_date}.',
+        '',
+        'Please login to Litigo for full details.',
+        '',
+        'Regards,',
+        'Litigo',
+    ]
+    body = '\n'.join(body_lines)
+
+    notification_service = NotificationService()
+    sent_count = 0
+    failed_count = 0
+    for recipient in email_recipients:
+        result = notification_service.send_email(recipient['email'], subject, body)
+        if result.get('ok'):
+            sent_count += 1
+        else:
+            failed_count += 1
+
+    notif_status = 'notified' if sent_count and not failed_count else 'partial' if sent_count else 'failed'
+    if sent_count == 0 and failed_count == 0:
+        notif_status = 'no_recipients'
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for match in pending:
+        prev = int(match.get('notification_count') or 0)
+        requests.patch(
+            f'{supabase_url}/rest/v1/today_matched_listings',
+            headers=sb_headers,
+            params={'id': f'eq.{match["id"]}'},
+            json={
+                'notification_status': notif_status,
+                'notification_sent_at': now_iso,
+                'notification_count': prev + sent_count,
+            },
+            timeout=settings.MHC_TIMEOUT_SECONDS,
+        )
+
+    return sent_count
+
+
 def _fetch_all_rows(conn: psycopg.Connection, query: str, params: Tuple[Any, ...]) -> List[Dict[str, Any]]:
     with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
         cur.execute(query, params)
@@ -482,6 +696,7 @@ def refresh_matched_listings(http_request: Request) -> JSONResponse:
     auth_header = http_request.headers.get('authorization', '')
     supabase_url = settings.SUPABASE_URL or os.environ.get('VITE_SUPABASE_URL', '').rstrip('/')
     supabase_key = settings.SUPABASE_SERVICE_ROLE_KEY or os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', '')
+    lookahead = (date.fromisoformat(today) + timedelta(days=7)).isoformat()
     query_latest_sql = '''
         SELECT MAX(cause_date) AS cause_date
         FROM daily_cause_list
@@ -550,13 +765,13 @@ def refresh_matched_listings(http_request: Request) -> JSONResponse:
             matched_case = None
             match_type = 'case_number'
 
-            if cnr_raw and cnr_raw.upper() in case_by_cnr:
+            norm_case = _normalize_case_number(case_raw)
+            if norm_case:
+                matched_case = case_by_norm.get(norm_case)
+
+            if not matched_case and cnr_raw and cnr_raw.upper() in case_by_cnr:
                 matched_case = case_by_cnr[cnr_raw.upper()]
                 match_type = 'cnr'
-            else:
-                norm_case = _normalize_case_number(case_raw)
-                if norm_case:
-                    matched_case = case_by_norm.get(norm_case)
 
             if not matched_case:
                 continue
@@ -569,7 +784,6 @@ def refresh_matched_listings(http_request: Request) -> JSONResponse:
             matched_rows.append({
                 'listed_date': latest_date,
                 'match_date': latest_date,
-                'organization_id': matched_case.get('organization_id'),
                 'case_id': matched_case['id'],
                 'daily_cause_list_id': cause_row['id'],
                 'case_number': cause_row.get('case_number'),
@@ -587,6 +801,149 @@ def refresh_matched_listings(http_request: Request) -> JSONResponse:
         return matched_rows
 
     try:
+        if not supabase_url or not supabase_key:
+            raise HTTPException(
+                status_code=503,
+                detail='Supabase URL and key must be configured to refresh matched listings.',
+            )
+
+        sb_headers = {
+            'apikey': supabase_key,
+            'Authorization': auth_header or f'Bearer {supabase_key}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+        }
+
+        latest_resp = requests.get(
+            f'{supabase_url}/rest/v1/daily_cause_list',
+            headers=sb_headers,
+            params={
+                'select': 'cause_date',
+                'cause_date': f'lte.{lookahead}',
+                'order': 'cause_date.desc',
+                'limit': '1',
+            },
+            timeout=settings.MHC_TIMEOUT_SECONDS,
+        )
+        latest_resp.raise_for_status()
+        latest_rows = latest_resp.json() or []
+        latest_date = latest_rows[0]['cause_date'] if latest_rows else None
+        if not latest_date:
+            return JSONResponse(content={
+                'success': True,
+                'match_date': today,
+                'cause_list_count': 0,
+                'cases_count': 0,
+                'matched_count': 0,
+                'message': 'No cause list data available to refresh.',
+            })
+
+        def _sb_get_all(table: str, params: Dict[str, str]) -> List[Dict[str, Any]]:
+            rows: List[Dict[str, Any]] = []
+            offset = 0
+            page_size = 1000
+            while True:
+                resp = requests.get(
+                    f'{supabase_url}/rest/v1/{table}',
+                    headers=sb_headers,
+                    params={**params, 'limit': str(page_size), 'offset': str(offset)},
+                    timeout=settings.MHC_TIMEOUT_SECONDS,
+                )
+                resp.raise_for_status()
+                chunk = resp.json() or []
+                if not isinstance(chunk, list) or not chunk:
+                    break
+                rows.extend(chunk)
+                if len(chunk) < page_size:
+                    break
+                offset += page_size
+            return rows
+
+        cause_rows = _sb_get_all('daily_cause_list', {
+            'select': 'id,cause_date,court_hall,item_number,cnr_number,case_number,petitioner,respondent,judge_name,last_hearing_or_stage',
+            'cause_date': f'eq.{latest_date}',
+            'court_name': 'eq.Madras High Court',
+            'bench': 'eq.Chennai',
+            'order': 'court_hall.asc,item_number.asc',
+        })
+        case_rows = _sb_get_all('cases', {
+            'select': 'id,organization_id,cnr_number,case_number',
+            'active': 'eq.true',
+        })
+
+        matched_rows = _build_matches(cause_rows, case_rows, latest_date)
+        enriched_count = 0
+        notified_count = 0
+        if matched_rows:
+            enriched_rows: List[Dict[str, Any]] = []
+            for row in matched_rows:
+                snapshot = None
+                cnr_value = str(row.get('cnr_number') or '').strip()
+                case_value = str(row.get('case_number') or '').strip()
+                if cnr_value or case_value:
+                    try:
+                        details = post_ecourts_case_details(CaseDetailsRequest(cnr_number=cnr_value, case_number=case_value))
+                        if isinstance(details, dict) and details.get('success'):
+                            snapshot = _extract_case_snapshot(details, case_number=case_value, cnr_number=cnr_value)
+                    except Exception:
+                        snapshot = None
+
+                if snapshot:
+                    enriched_count += 1
+                    row.update({
+                        'latest_case_status': snapshot.get('latest_case_status'),
+                        'latest_stage': snapshot.get('latest_stage'),
+                        'latest_hearing_date': snapshot.get('latest_hearing_date'),
+                        'latest_hearing_remarks': snapshot.get('latest_hearing_remarks'),
+                        'latest_business': snapshot.get('latest_business'),
+                        'next_hearing_date': snapshot.get('next_hearing_date'),
+                        'hearing_history': snapshot.get('hearing_history'),
+                        'ecourts_sync_status': snapshot.get('ecourts_sync_status'),
+                        'ecourts_error': snapshot.get('ecourts_error'),
+                    })
+                    try:
+                        _patch_case_after_enrichment(supabase_url, sb_headers, str(row['case_id']), snapshot)
+                    except Exception:
+                        pass
+
+                enriched_rows.append(row)
+
+            insert_resp = requests.post(
+                f'{supabase_url}/rest/v1/today_matched_listings',
+                headers={**sb_headers, 'Prefer': 'resolution=merge-duplicates,return=minimal'},
+                params={'on_conflict': 'listed_date,case_id,daily_cause_list_id'},
+                json=enriched_rows,
+                timeout=settings.MHC_TIMEOUT_SECONDS,
+            )
+            
+            if insert_resp.status_code >= 400:
+                error_detail = insert_resp.text
+                try:
+                    error_json = insert_resp.json()
+                    error_detail = error_json
+                except:
+                    pass
+                logger.error(f'Supabase insert failed with {insert_resp.status_code}: {error_detail}')
+                logger.error(f'Sample row being inserted: {enriched_rows[0] if enriched_rows else "empty"}')
+                logger.error(f'Row keys: {list(enriched_rows[0].keys()) if enriched_rows else "no rows"}')
+                insert_resp.raise_for_status()
+
+            notified_count = _notify_pending_listings(supabase_url, sb_headers, latest_date)
+
+        return JSONResponse(content={
+            'success': True,
+            'match_date': latest_date,
+            'cause_list_count': len(cause_rows),
+            'cases_count': len(case_rows),
+            'matched_count': len(matched_rows),
+            'enriched_count': enriched_count,
+            'notified_count': notified_count,
+            'message': (
+                f'Refreshed {len(matched_rows)} matched listings for {latest_date}.'
+                if matched_rows else 'No matching listings found to refresh.'
+            ),
+        })
+
         if settings.DATABASE_URL:
             _require_psycopg()
             with psycopg.connect(settings.DATABASE_URL, autocommit=True) as conn:
@@ -625,104 +982,6 @@ def refresh_matched_listings(http_request: Request) -> JSONResponse:
                         if matched_rows else 'No matching listings found to refresh.'
                     ),
                 })
-
-        if not supabase_url or not supabase_key:
-            raise HTTPException(
-                status_code=503,
-                detail='Supabase URL and key must be configured to refresh matched listings.',
-            )
-        if not auth_header and not settings.SUPABASE_SERVICE_ROLE_KEY:
-            raise HTTPException(
-                status_code=503,
-                detail='Please sign in again so the refresh can use your Supabase session.',
-            )
-
-        sb_headers = {
-            'apikey': supabase_key,
-            'Authorization': auth_header or f'Bearer {supabase_key}',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-        }
-
-        latest_resp = requests.get(
-            f'{supabase_url}/rest/v1/daily_cause_list',
-            headers=sb_headers,
-            params={
-                'select': 'cause_date',
-                'cause_date': f'lte.{today}',
-                'order': 'cause_date.desc',
-                'limit': '1',
-            },
-            timeout=settings.MHC_TIMEOUT_SECONDS,
-        )
-        latest_resp.raise_for_status()
-        latest_rows = latest_resp.json() or []
-        latest_date = latest_rows[0]['cause_date'] if latest_rows else None
-        if not latest_date:
-            return JSONResponse(content={
-                'success': True,
-                'match_date': today,
-                'cause_list_count': 0,
-                'cases_count': 0,
-                'matched_count': 0,
-                'message': 'No cause list data available to refresh.',
-            })
-
-        def _sb_get_all(table: str, params: Dict[str, str]) -> List[Dict[str, Any]]:
-            rows: List[Dict[str, Any]] = []
-            offset = 0
-            page_size = 1000
-            while True:
-                resp = requests.get(
-                    f'{supabase_url}/rest/v1/{table}',
-                    headers={**sb_headers, 'Range-Unit': 'items', 'Range': f'{offset}-{offset + page_size - 1}'},
-                    params=params,
-                    timeout=settings.MHC_TIMEOUT_SECONDS,
-                )
-                resp.raise_for_status()
-                chunk = resp.json() or []
-                if not isinstance(chunk, list) or not chunk:
-                    break
-                rows.extend(chunk)
-                if len(chunk) < page_size:
-                    break
-                offset += page_size
-            return rows
-
-        cause_rows = _sb_get_all('daily_cause_list', {
-            'select': 'id,cause_date,court_hall,item_number,cnr_number,case_number,petitioner,respondent,judge_name,last_hearing_or_stage',
-            'cause_date': f'eq.{latest_date}',
-            'court_name': 'eq.Madras%20High%20Court',
-            'bench': 'eq.Chennai',
-            'order': 'court_hall.asc,item_number.asc',
-        })
-        case_rows = _sb_get_all('cases', {
-            'select': 'id,organization_id,cnr_number,case_number',
-            'active': 'eq.true',
-        })
-
-        matched_rows = _build_matches(cause_rows, case_rows, latest_date)
-        if matched_rows:
-            insert_resp = requests.post(
-                f'{supabase_url}/rest/v1/today_matched_listings',
-                headers={**sb_headers, 'Prefer': 'resolution=merge-duplicates,return=minimal'},
-                params={'on_conflict': 'listed_date,case_id,daily_cause_list_id'},
-                json=matched_rows,
-                timeout=settings.MHC_TIMEOUT_SECONDS,
-            )
-            insert_resp.raise_for_status()
-
-        return JSONResponse(content={
-            'success': True,
-            'match_date': latest_date,
-            'cause_list_count': len(cause_rows),
-            'cases_count': len(case_rows),
-            'matched_count': len(matched_rows),
-            'message': (
-                f'Refreshed {len(matched_rows)} matched listings for {latest_date}.'
-                if matched_rows else 'No matching listings found to refresh.'
-            ),
-        })
 
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f'Unable to refresh matched listings: {exc}') from exc
@@ -769,6 +1028,7 @@ def _supabase_fetch_today(cause_date_str: str) -> List[Dict[str, Any]]:
 def get_todays_cause_list() -> JSONResponse:
     """Serve cause list data from Supabase."""
     cause_date_str = date.today().isoformat()
+    lookahead = (date.fromisoformat(cause_date_str) + timedelta(days=7)).isoformat()
     print(f'[cause-list] Reading from Supabase | date={cause_date_str}')
 
     supabase_url = settings.SUPABASE_URL or os.environ.get('VITE_SUPABASE_URL', '').rstrip('/')
@@ -786,7 +1046,7 @@ def get_todays_cause_list() -> JSONResponse:
             # Fall back to the most recent available date
             latest_url = (
                 f'{supabase_url}/rest/v1/daily_cause_list'
-                f'?cause_date=lte.{cause_date_str}'
+                f'?cause_date=lte.{lookahead}'
                 '&court_name=eq.Madras%20High%20Court&bench=eq.Chennai'
                 '&select=cause_date&order=cause_date.desc&limit=1'
             )

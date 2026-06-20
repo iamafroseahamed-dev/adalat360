@@ -181,7 +181,6 @@ export default function TodaysListingsPage() {
       matchedRows.push({
         listed_date: latestDate,
         match_date: latestDate,
-        organization_id: match.organization_id,
         case_id: match.id,
         daily_cause_list_id: causeRow.id,
         case_number: causeRow.case_number,
@@ -201,10 +200,17 @@ export default function TodaysListingsPage() {
       throw new Error('No matching listings found to refresh.');
     }
 
+    console.log(`[refresh] Attempting upsert of ${matchedRows.length} rows with fields:`, Object.keys(matchedRows[0] ?? {}));
+    console.log('[refresh] First row sample:', matchedRows[0]);
+    
     const { error: upsertError } = await supabase
       .from('today_matched_listings')
       .upsert(matchedRows, { onConflict: 'listed_date,case_id,daily_cause_list_id' });
-    if (upsertError) throw upsertError;
+    
+    if (upsertError) {
+      console.error('[refresh] Upsert error:', upsertError);
+      throw new Error(`Upsert failed: ${upsertError.message || JSON.stringify(upsertError)}`);
+    }
 
     return { latestDate, matchedCount: matchedRows.length };
   }, [user?.profile?.organization_id]);
@@ -302,6 +308,16 @@ export default function TodaysListingsPage() {
       if (!res.ok) {
         throw new Error(data?.detail || data?.message || `Refresh failed with status ${res.status}`);
       }
+
+      if ((data?.matched_count ?? 0) === 0) {
+        const localResult = await refreshListingsLocally();
+        setListedDateFrom(defaultDate);
+        setListedDateTo(defaultDate);
+        await fetchData();
+        toast.success(`${localResult.matchedCount} records matched for ${localResult.latestDate}.`);
+        return;
+      }
+
       setListedDateFrom(defaultDate);
       setListedDateTo(defaultDate);
       await fetchData();
@@ -642,43 +658,76 @@ export default function TodaysListingsPage() {
                         <TableRow key={`${record.id}-exp`}
                           className="bg-muted/10 hover:bg-muted/10">
                           <TableCell colSpan={15} className="p-0">
-                            <div className="px-10 py-3 border-t">
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                                Hearing History
+                            <div className="px-10 py-4 border-t">
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+                                Case Timeline & Hearing History
                                 {record.ecourts_synced_at && (
                                   <span className="ml-2 font-normal normal-case">
                                     (synced {fmtDate(record.ecourts_synced_at)})
                                   </span>
                                 )}
                               </p>
+
+                              {/* Summary cards */}
+                              <div className="grid grid-cols-3 gap-3 mb-4 text-xs">
+                                <div className="border rounded-lg p-2 bg-background/50">
+                                  <div className="text-muted-foreground font-medium">Listed Date</div>
+                                  <div className="font-mono text-sm font-bold text-foreground">
+                                    {fmtDate(record.listed_date ?? record.match_date)}
+                                  </div>
+                                </div>
+                                <div className="border rounded-lg p-2 bg-background/50">
+                                  <div className="text-muted-foreground font-medium">Latest Hearing</div>
+                                  <div className="font-mono text-sm font-bold text-foreground">
+                                    {record.latest_hearing_date ? fmtDate(record.latest_hearing_date) : '—'}
+                                  </div>
+                                  {record.latest_hearing_remarks && (
+                                    <div className="text-[11px] text-muted-foreground mt-1 truncate">
+                                      {record.latest_hearing_remarks}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="border rounded-lg p-2 bg-background/50">
+                                  <div className="text-muted-foreground font-medium">Next Hearing</div>
+                                  <div className="font-mono text-sm font-bold text-foreground">
+                                    {record.next_hearing_date ? fmtDate(record.next_hearing_date) : '—'}
+                                  </div>
+                                  {record.latest_stage && (
+                                    <div className="text-[11px] text-muted-foreground mt-1 truncate">
+                                      {record.latest_stage}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Timeline */}
                               {hearings.length === 0 ? (
-                                <p className="text-xs text-muted-foreground py-1">
-                                  No hearing history available.
+                                <p className="text-xs text-muted-foreground py-2">
+                                  No hearing history timeline available.
                                 </p>
                               ) : (
-                                <table className="w-full text-xs border-collapse">
-                                  <thead>
-                                    <tr className="border-b text-muted-foreground">
-                                      <th className="text-left py-1 pr-4 font-medium">Date</th>
-                                      <th className="text-left py-1 pr-4 font-medium">Stage</th>
-                                      <th className="text-left py-1 pr-4 font-medium">Business / Purpose</th>
-                                      <th className="text-left py-1 font-medium">Remarks</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {hearings.map((h, i) => (
-                                      <tr key={i}
-                                        className="border-b border-muted/30 last:border-0">
-                                        <td className="py-1 pr-4 font-mono whitespace-nowrap">
-                                          {fmtDate(h.date) || h.date || '\u2014'}
-                                        </td>
-                                        <td className="py-1 pr-4">{h.stage || '\u2014'}</td>
-                                        <td className="py-1 pr-4">{h.business || '\u2014'}</td>
-                                        <td className="py-1">{h.remarks || '\u2014'}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
+                                <div className="space-y-2">
+                                  {hearings.map((h, i) => (
+                                    <div key={i} className="flex gap-3">
+                                      <div className="flex flex-col items-center gap-0 pt-1">
+                                        <div className="w-3 h-3 rounded-full bg-primary" />
+                                        {i < hearings.length - 1 && (
+                                          <div className="w-0.5 h-6 bg-border" />
+                                        )}
+                                      </div>
+                                      <div className="pb-2 flex-1 min-w-0">
+                                        <div className="font-mono text-xs font-bold">
+                                          {fmtDate(h.date) || h.date || '—'}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                          {h.stage && <span className="block">{h.stage}</span>}
+                                          {h.business && <span className="block">{h.business}</span>}
+                                          {h.remarks && <span className="block italic">{h.remarks}</span>}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               )}
                             </div>
                           </TableCell>
