@@ -639,6 +639,7 @@ def _sync_cases_table(enriched_matches: List[Dict]) -> int:
 # ── Automatic notifications ────────────────────────────────────────────────────
 # Email via NotificationService (Resend). SMS/WhatsApp are intentionally empty.
 
+MAILERSEND_URL = 'https://api.mailersend.com/v1/email'
 NOTIFICATION_SERVICE = NotificationService()
 
 
@@ -881,8 +882,7 @@ def _notify_listings(listed_date: str) -> None:
         for rec in db_recipients:
             if not (rec.get('notify_sms') and rec.get('mobile_number')):
                 continue
-            result = _send_sms_twilio(rec['mobile_number'], sms_body)
-            ok = result.get('ok', False)
+            result = NOTIFICATION_SERVICE.send_sms(rec['mobile_number'], sms_body)
             for match in pending:
                 delivery_logs.append({
                     'matched_listing_id': match['id'],
@@ -892,21 +892,19 @@ def _notify_listings(listed_date: str) -> None:
                     'recipient_address':  rec['mobile_number'],
                     'subject':            None,
                     'message':            sms_body,
-                    'status':             'sent' if ok else 'failed',
-                    'provider':           'twilio',
+                    'status':             'skipped',
+                    'provider':           'msg91',
                     'provider_response':  result.get('response'),
-                    'error_message':      result.get('error') if not ok else None,
-                    'sent_at':            now_iso if ok else None,
+                    'error_message':      result.get('error'),
+                    'sent_at':            None,
                 })
-            if ok: total_sent += 1
-            else:  total_failed += 1
+            print(f'[notify] SMS skipped for {rec["mobile_number"]}')
 
         # ── WhatsApp: one consolidated message per WA recipient ────────────────
         for rec in db_recipients:
             if not (rec.get('notify_whatsapp') and rec.get('whatsapp_number')):
                 continue
-            result = _send_whatsapp_twilio(rec['whatsapp_number'], wa_body)
-            ok = result.get('ok', False)
+            result = NOTIFICATION_SERVICE.send_whatsapp(rec['whatsapp_number'], wa_body)
             for match in pending:
                 delivery_logs.append({
                     'matched_listing_id': match['id'],
@@ -916,14 +914,13 @@ def _notify_listings(listed_date: str) -> None:
                     'recipient_address':  rec['whatsapp_number'],
                     'subject':            None,
                     'message':            wa_body,
-                    'status':             'sent' if ok else 'failed',
-                    'provider':           'twilio',
+                    'status':             'skipped',
+                    'provider':           'msg91',
                     'provider_response':  result.get('response'),
-                    'error_message':      result.get('error') if not ok else None,
-                    'sent_at':            now_iso if ok else None,
+                    'error_message':      result.get('error'),
+                    'sent_at':            None,
                 })
-            if ok: total_sent += 1
-            else:  total_failed += 1
+            print(f'[notify] WhatsApp skipped for {rec["whatsapp_number"]}')
 
         # ── Insert delivery logs ───────────────────────────────────────────────
         if delivery_logs:

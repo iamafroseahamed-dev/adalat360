@@ -10,20 +10,35 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin
 
-import ddddocr
-import fitz
-import psycopg
+try:
+    import psycopg
+except ImportError:
+    psycopg = None
 import requests
 import urllib3
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, HttpUrl
 from pydantic_settings import BaseSettings
+
+try:
+    import uvicorn
+except ImportError:
+    uvicorn = None
+
+try:
+    import ddddocr
+except ImportError:
+    ddddocr = None
+
+try:
+    import fitz
+except ImportError:
+    fitz = None
 
 
 class Settings(BaseSettings):
@@ -191,10 +206,17 @@ _ocr_lock = Lock()
 
 def _get_ocr() -> Any:
     global _ocr_instance
+    if ddddocr is None:
+        raise HTTPException(status_code=503, detail='ddddocr is not installed in the local backend environment.')
     with _ocr_lock:
         if _ocr_instance is None:
             _ocr_instance = ddddocr.DdddOcr(show_ad=False)
     return _ocr_instance
+
+
+def _require_psycopg() -> None:
+    if psycopg is None:
+        raise HTTPException(status_code=503, detail='psycopg is not installed in the local backend environment.')
 
 
 def _auto_solve_captcha_hc() -> Tuple[requests.Session, str]:
@@ -305,6 +327,7 @@ def get_matched_listings() -> List[Dict[str, Any]]:
     today = date.today().isoformat()
 
     if settings.DATABASE_URL:
+        _require_psycopg()
         query = '''
             SELECT
                 d.id,
@@ -554,6 +577,7 @@ def refresh_matched_listings() -> JSONResponse:
 
     try:
         if settings.DATABASE_URL:
+            _require_psycopg()
             with psycopg.connect(settings.DATABASE_URL, autocommit=True) as conn:
                 with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
                     cur.execute(query_latest_sql, (today,))
@@ -2024,6 +2048,8 @@ def get_proxy_pdf(url: str) -> Any:
 
 @app.post('/api/extract-pdf-text')
 def post_extract_pdf_text(request: ExtractPdfTextRequest) -> Dict[str, str]:
+    if fitz is None:
+        raise HTTPException(status_code=503, detail='PyMuPDF is not installed in the local backend environment.')
     try:
         response = requests.get(request.pdfUrl, timeout=settings.MHC_TIMEOUT_SECONDS)
         response.raise_for_status()
@@ -2262,4 +2288,6 @@ def get_mhc_case_status(request: MhcCaseStatusRequest) -> JSONResponse:
 
 
 if __name__ == '__main__':
+    if uvicorn is None:
+        raise RuntimeError('uvicorn is not installed in the local backend environment.')
     uvicorn.run(app, host='127.0.0.1', port=8001)

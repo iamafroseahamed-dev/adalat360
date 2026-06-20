@@ -15,6 +15,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { toast } from 'sonner';
+import { useAuth } from '@/lib/auth';
 
 interface Recipient {
   id: string;
@@ -35,6 +36,8 @@ const EMPTY: Omit<Recipient, 'id' | 'created_at'> = {
 };
 
 export default function Settings() {
+  const { user } = useAuth();
+  const orgId = user?.profile.organization_id;
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [loading, setLoading]       = useState(true);
   const [dialog, setDialog]         = useState<'add' | 'edit' | null>(null);
@@ -42,6 +45,13 @@ export default function Settings() {
   const [form, setForm]             = useState(EMPTY);
   const [saving, setSaving]         = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Recipient | null>(null);
+  const [providerLoading, setProviderLoading] = useState(false);
+  const [providerSaving, setProviderSaving] = useState(false);
+  const [msg91AuthKey, setMsg91AuthKey] = useState('');
+  const [msg91SenderId, setMsg91SenderId] = useState('');
+  const [msg91WhatsappTemplateId, setMsg91WhatsappTemplateId] = useState('');
+  const [msg91WhatsappFlowId, setMsg91WhatsappFlowId] = useState('');
+  const [msg91Configured, setMsg91Configured] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,6 +64,27 @@ export default function Settings() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadMsg91Settings = useCallback(async () => {
+    if (!orgId) return;
+    setProviderLoading(true);
+    try {
+      const res = await fetch(`/api/notification-settings/msg91?organization_id=${encodeURIComponent(orgId)}`);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.detail || data?.message || 'Unable to load MSG91 settings.');
+      setMsg91Configured(Boolean(data?.auth_key_present));
+      setMsg91SenderId(data?.sender_id || '');
+      setMsg91WhatsappTemplateId(data?.whatsapp_template_id || '');
+      setMsg91WhatsappFlowId(data?.whatsapp_flow_id || '');
+      setMsg91AuthKey('');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Unable to load MSG91 settings.');
+    } finally {
+      setProviderLoading(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => { loadMsg91Settings(); }, [loadMsg91Settings]);
 
   function openAdd() {
     setForm(EMPTY);
@@ -126,6 +157,36 @@ export default function Settings() {
       .eq('id', r.id);
     if (error) { toast.error(error.message); return; }
     await load();
+  }
+
+  async function saveMsg91Settings() {
+    if (!orgId) {
+      toast.error('Your organization is not available yet.');
+      return;
+    }
+    setProviderSaving(true);
+    try {
+      const res = await fetch('/api/notification-settings/msg91', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          organization_id: orgId,
+          auth_key: msg91AuthKey.trim() || null,
+          sender_id: msg91SenderId.trim() || null,
+          whatsapp_template_id: msg91WhatsappTemplateId.trim() || null,
+          whatsapp_flow_id: msg91WhatsappFlowId.trim() || null,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.detail || data?.message || 'Unable to save MSG91 settings.');
+      setMsg91Configured(true);
+      setMsg91AuthKey('');
+      toast.success('MSG91 settings saved securely.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Unable to save MSG91 settings.');
+    } finally {
+      setProviderSaving(false);
+    }
   }
 
   const t = (f: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -221,6 +282,64 @@ export default function Settings() {
               </Table>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* ── Messaging Provider Settings ───────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Mail className="h-4 w-4" />
+            Messaging Provider Settings
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Email uses Resend now. MSG91 values are stored on the backend for future SMS and WhatsApp delivery.
+          </p>
+          {providerLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>MSG91 Auth Key</Label>
+                <Input
+                  type="password"
+                  value={msg91AuthKey}
+                  onChange={e => setMsg91AuthKey(e.target.value)}
+                  placeholder={msg91Configured ? 'Leave blank to keep existing key' : 'Enter MSG91 auth key'}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>MSG91 Sender ID</Label>
+                <Input value={msg91SenderId} onChange={e => setMsg91SenderId(e.target.value)} placeholder="Sender ID" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>MSG91 WhatsApp Template ID</Label>
+                <Input
+                  value={msg91WhatsappTemplateId}
+                  onChange={e => setMsg91WhatsappTemplateId(e.target.value)}
+                  placeholder="Template ID"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>MSG91 WhatsApp Flow ID</Label>
+                <Input
+                  value={msg91WhatsappFlowId}
+                  onChange={e => setMsg91WhatsappFlowId(e.target.value)}
+                  placeholder="Flow ID"
+                />
+              </div>
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              {msg91Configured ? 'MSG91 settings are already stored securely.' : 'MSG91 settings are not configured yet.'}
+            </p>
+            <Button onClick={saveMsg91Settings} disabled={providerSaving || providerLoading || !orgId}>
+              {providerSaving ? 'Saving…' : 'Save MSG91 Settings'}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
