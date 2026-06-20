@@ -148,10 +148,32 @@ if matched > 0:
         cn = m.get('case_number', '')
         if '2295' in cn or '2295' in (m.get('cnr_number') or ''):
             print(f'  ecourts_sync_status={m.get("ecourts_sync_status")!r}')
-            print(f'  hearing_history={m.get("hearing_history")!r}')
             print(f'  next_hearing_date={m.get("next_hearing_date")!r}')
+            print(f'  latest_case_status={m.get("latest_case_status")!r}')
             print(f'  ecourts_error={m.get("ecourts_error")!r}')
 
     print(f'Upserting {len(enriched)} records...')
     n = mod._safe_upsert_batch(enriched)
     print(f'Upserted: {n}')
+
+    # Sync cases table
+    print('\n--- Syncing cases table ---')
+    synced = mod._sync_cases_table(enriched)
+    print(f'Cases synced: {synced}')
+
+    # Show updated case record
+    import requests as _req
+    sb_url = os.environ['SUPABASE_URL']
+    sb_key = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+    hdrs = {'apikey': sb_key, 'Authorization': f'Bearer {sb_key}'}
+    case_r = _req.get(
+        f'{sb_url}/rest/v1/cases',
+        headers=hdrs,
+        params={
+            'id': 'eq.5cfa56ad-14e6-4aad-981c-43533031a8a2',
+            'select': 'case_number,case_status,last_hearing_date,last_hearing_update,next_hearing_date,follow_up_status,ecourts_last_synced_at',
+        },
+    )
+    print('\nUpdated case record:')
+    import json as _json
+    print(_json.dumps(case_r.json(), indent=2))

@@ -239,12 +239,12 @@ export default function TodaysListingsPage() {
               await fetch('/api/todays-cause-list?refresh=1').catch(() => null);
               const res  = await fetch('/api/match-todays-listings', { method: 'POST' });
               const data = await res.json();
-              setListedDateFrom(todayUtc);
-              setListedDateTo(todayUtc);
+              setListedDateFrom(defaultDate);
+              setListedDateTo(defaultDate);
               await fetchData();
               toast.success(
                 data.matched_count != null
-                  ? `${data.matched_count} records matched for ${data.match_date ?? todayUtc}.`
+                  ? `${data.matched_count} records matched, ${data.synced_cases_count ?? 0} cases synced for ${data.match_date ?? defaultDate}.`
                   : 'Listings refreshed.',
               );
             } catch {

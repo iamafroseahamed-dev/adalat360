@@ -411,7 +411,7 @@ def _enrich_match(match: Dict) -> Dict:
     now_iso = datetime.now(timezone.utc).isoformat()
 
     if not cnr:
-        match['ecourts_sync_status'] = 'no_cnr'
+        match['ecourts_sync_status'] = 'pending_cnr'  # CNR not yet discovered
         match['ecourts_synced_at']   = now_iso
         return match
 
@@ -470,7 +470,7 @@ def _enrich_all(matches: List[Dict]) -> Tuple[List[Dict], int]:
 
     now_iso = datetime.now(timezone.utc).isoformat()
     for m in no_cnr:
-        m['ecourts_sync_status'] = 'no_cnr'
+        m['ecourts_sync_status'] = 'pending_cnr'   # CNR not yet discovered
         m['ecourts_synced_at']   = now_iso
 
     if not to_fetch:
@@ -510,6 +510,127 @@ def _enrich_all(matches: List[Dict]) -> Tuple[List[Dict], int]:
         executor.shutdown(wait=False, cancel_futures=True)
 
     return enriched, done_count
+
+
+# ── Cases master-record status sync ───────────────────────────────────────────
+
+def _derive_case_patch(match: Dict, today_str: str) -> Optional[Dict]:
+    """
+    Derive the PATCH dict for the cases table from one enriched match.
+    Returns None if the match was not successfully enriched (skip update).
+
+    Mapping:
+      latest_case_status  → case_status
+      latest_hearing_date → last_hearing_date
+      latest_hearing_remarks → last_hearing_update
+      next_hearing_date   → next_hearing_date
+
+    Status rules:
+      "Disposed" in status  → case_status='Disposed', active=False
+      "Pending"  in status  → case_status='Pending'
+      next_hearing_date >= today → follow_up_status='Active'
+    """
+    if match.get('ecourts_sync_status') != 'done':
+        return None
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    patch: Dict = {
+        'updated_at':              now_iso,
+        'ecourts_last_synced_at':  now_iso,
+    }
+
+    raw_status = (match.get('latest_case_status') or '').strip()
+    if raw_status:
+        sl = raw_status.lower()
+        if 'dispos' in sl:
+            patch['case_status'] = 'Disposed'
+            patch['active']      = False
+        elif 'pending' in sl:
+            patch['case_status'] = 'Pending'
+        else:
+            patch['case_status'] = raw_status
+
+    lhd = match.get('latest_hearing_date')
+    if lhd:
+        patch['last_hearing_date'] = lhd
+
+    lhr = (match.get('latest_hearing_remarks') or '').strip()
+    if lhr:
+        patch['last_hearing_update'] = lhr
+
+    nhd = match.get('next_hearing_date')
+    if nhd:
+        patch['next_hearing_date'] = nhd
+        if nhd >= today_str:
+            patch['follow_up_status'] = 'Active'
+
+    # Only worth patching if there is something beyond the timestamps
+    substantive_keys = set(patch) - {'updated_at', 'ecourts_last_synced_at'}
+    return patch if substantive_keys else None
+
+
+def _safe_patch_case(case_id: str, patch: Dict) -> bool:
+    """PATCH a single case row.  Strips unknown columns on PGRST204 / 42703 and retries once."""
+    def _do_patch(fields: Dict) -> requests.Response:
+        return requests.patch(
+            f'{SUPABASE_URL}/rest/v1/cases',
+            headers=_sb_headers(),
+            params={'id': f'eq.{case_id}'},
+            json=fields,
+            timeout=15,
+        )
+
+    r = _do_patch(patch)
+    if r.ok:
+        return True
+
+    ct  = r.headers.get('content-type', '')
+    err = r.json() if 'json' in ct else {}
+    code = err.get('code', '') if isinstance(err, dict) else ''
+    msg  = err.get('message', '') if isinstance(err, dict) else ''
+
+    # PGRST204 = PostgREST column-not-found; 42703 = PostgreSQL undefined_column
+    if code in ('PGRST204', '42703'):
+        import re as _re
+        m = _re.search(r"column (?:cases\.)?[\"']?(\w+)[\"']? does not exist|find the '(\w+)' column", msg)
+        if m:
+            missing = m.group(1) or m.group(2)
+            stripped = {k: v for k, v in patch.items() if k != missing}
+            r2 = _do_patch(stripped)
+            if r2.ok:
+                return True
+    print(f'[sync] PATCH cases id={case_id} failed: {err or r.text[:200]}')
+    return False
+
+
+def _sync_cases_table(enriched_matches: List[Dict]) -> int:
+    """
+    Update the cases master table for every successfully enriched match.
+    Non-blocking: logs errors but never raises.
+    Returns count of rows successfully updated.
+    """
+    today_str = datetime.now(IST).date().isoformat()
+    updated   = 0
+
+    for match in enriched_matches:
+        case_id = match.get('case_id')
+        if not case_id:
+            continue
+
+        patch = _derive_case_patch(match, today_str)
+        if not patch:
+            continue
+
+        try:
+            if _safe_patch_case(case_id, patch):
+                updated += 1
+                print(f'[sync] cases updated case_id={case_id} '
+                      f'status={patch.get("case_status")!r} '
+                      f'nhd={patch.get("next_hearing_date")!r}')
+        except Exception as exc:
+            print(f'[sync] cases update error case_id={case_id}: {exc}')
+
+    return updated
 
 
 # ── Automatic notifications ────────────────────────────────────────────────────
@@ -936,16 +1057,25 @@ class handler(BaseHTTPRequestHandler):
                 inserted += _safe_upsert_batch(enriched_matches[i:i + BATCH_SIZE])
 
             # 7. Send automatic notifications for newly matched listings (non-blocking)
+            # 6b. Sync cases master table with latest court status (non-blocking)
+            synced_cases = 0
+            try:
+                synced_cases = _sync_cases_table(enriched_matches)
+            except Exception as exc:
+                print(f'[sync] cases sync error (non-fatal): {exc}')
+
+            # 7. Send automatic notifications after successful insert (non-blocking)
             if inserted > 0:
                 _notify_listings(today)
 
             self._json({
-                'success':          True,
-                'match_date':       today,
-                'cause_list_count': len(cause_list),
-                'cases_count':      len(cases),
-                'matched_count':    inserted,
-                'enriched_count':   enriched_count,
+                'success':           True,
+                'match_date':        today,
+                'cause_list_count':  len(cause_list),
+                'cases_count':       len(cases),
+                'matched_count':     inserted,
+                'enriched_count':    enriched_count,
+                'synced_cases_count': synced_cases,
             })
 
         except Exception as exc:
