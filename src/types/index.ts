@@ -287,8 +287,8 @@ export interface CaseFilters {
 }
 
 export interface NotificationFilters {
-  notification_type?: NotificationType | '';
-  status?: NotificationStatus | '';
+  notification_type?: Notification | '';
+  status?: Notification | '';
 }
 
 export interface CauseListFilters {
