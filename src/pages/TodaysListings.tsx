@@ -63,6 +63,7 @@ export default function TodaysListingsPage() {
   const [error,   setError]               = useState<string | null>(null);
   const [listings, setListings]           = useState<TodayMatchedListing[]>([]);
   const [isRefreshing, setIsRefreshing]   = useState(false);
+  const [autoRefreshedEmptyView, setAutoRefreshedEmptyView] = useState(false);
   const [expandedRows, setExpandedRows]   = useState<Set<string>>(new Set());
   const [listingHistoryMap, setListingHistoryMap] = useState<
     Map<string, { count: number; firstListed: string; lastListed: string }>
@@ -166,7 +167,47 @@ export default function TodaysListingsPage() {
     }
   }, [listedDateFrom, listedDateTo, todayUtc]);
 
+  const refreshListings = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await fetch('/api/todays-cause-list?refresh=1').catch(() => null);
+      const res  = await fetch('/api/match-todays-listings', { method: 'POST' });
+      const data = await res.json();
+      setListedDateFrom(defaultDate);
+      setListedDateTo(defaultDate);
+      await fetchData();
+      toast.success(
+        data.matched_count != null
+          ? `${data.matched_count} records matched, ${data.synced_cases_count ?? 0} cases synced for ${data.match_date ?? defaultDate}.`
+          : 'Listings refreshed.',
+      );
+    } catch {
+      toast.error('Unable to refresh listings. Please try again.');
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [defaultDate, fetchData]);
+
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    const usingDefaultRange = listedDateFrom === defaultDate && listedDateTo === defaultDate;
+    if (!usingDefaultRange || loading || error || listings.length > 0 || autoRefreshedEmptyView) {
+      return;
+    }
+
+    setAutoRefreshedEmptyView(true);
+    void refreshListings();
+  }, [
+    autoRefreshedEmptyView,
+    defaultDate,
+    error,
+    listedDateFrom,
+    listedDateTo,
+    listings.length,
+    loading,
+    refreshListings,
+  ]);
 
   // ── Derived values ────────────────────────────────────────────────────────────
   const judgeOptions = useMemo(
@@ -237,26 +278,7 @@ export default function TodaysListingsPage() {
         <Button
           variant="outline" size="sm" className="h-9 gap-1"
           disabled={loading || isRefreshing}
-          onClick={async () => {
-            setIsRefreshing(true);
-            try {
-              await fetch('/api/todays-cause-list?refresh=1').catch(() => null);
-              const res  = await fetch('/api/match-todays-listings', { method: 'POST' });
-              const data = await res.json();
-              setListedDateFrom(defaultDate);
-              setListedDateTo(defaultDate);
-              await fetchData();
-              toast.success(
-                data.matched_count != null
-                  ? `${data.matched_count} records matched, ${data.synced_cases_count ?? 0} cases synced for ${data.match_date ?? defaultDate}.`
-                  : 'Listings refreshed.',
-              );
-            } catch {
-              toast.error('Unable to refresh listings. Please try again.');
-            } finally {
-              setIsRefreshing(false);
-            }
-          }}
+          onClick={refreshListings}
         >
           <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
           {isRefreshing ? 'Refreshing\u2026' : 'Refresh'}
