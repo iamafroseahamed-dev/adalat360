@@ -194,9 +194,21 @@ def normalize_case_number(s: Optional[str]) -> str:
     s = re.sub(r'\s+', ' ', s).strip()
     parts = [p.strip() for p in re.split(r'\s*/\s*|\s+', s) if p.strip()]
     if len(parts) >= 3:
-        ct   = parts[0]
-        cn   = re.sub(r'\D', '', parts[1]).lstrip('0') or '0'
-        cy   = re.sub(r'\D', '', parts[2])
+        # Find the first purely-numeric segment — that is the serial number.
+        # Handles multi-segment case types like "CONT P/2295/2024" where the
+        # letter-only "P" belongs to the type, not the serial number, and avoids
+        # treating 2295 as the year (the real year 2024 would be ignored).
+        num_idx = next((i for i, p in enumerate(parts) if re.match(r'^\d+$', p)), -1)
+        if num_idx >= 1 and num_idx + 1 < len(parts):
+            ct = ''.join(parts[:num_idx])
+            cn = parts[num_idx].lstrip('0') or '0'
+            cy = re.sub(r'\D', '', parts[num_idx + 1])
+            if ct and cn and re.match(r'^\d{2,4}$', cy):
+                return f'{ct}/{cn}/{cy}'
+        # Fallback: original behaviour for mixed alpha-numeric number segments
+        ct = parts[0]
+        cn = re.sub(r'\D', '', parts[1]).lstrip('0') or '0'
+        cy = re.sub(r'\D', '', parts[2])
         if ct and cn and re.match(r'^\d{2,4}$', cy):
             return f'{ct}/{cn}/{cy}'
     return re.sub(r'[^A-Z0-9]', '', s)
