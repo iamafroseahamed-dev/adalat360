@@ -98,11 +98,19 @@ def _get_all(table: str, params: Dict[str, str]) -> List[Dict]:
 # ── Latest available cause date ────────────────────────────────────────────────
 
 def _latest_cause_date(up_to: str) -> Optional[str]:
+    """Return the most recent cause_date in daily_cause_list.
+
+    Courts often upload cause lists 1-3 days in advance (e.g. Friday for
+    Monday), so we look up to 7 days ahead of `up_to` to capture those.
+    We still cap at 7 days to avoid accidentally matching a far-future list.
+    """
+    from datetime import date as _date
+    lookahead = (_date.fromisoformat(up_to) + timedelta(days=7)).isoformat()
     resp = requests.get(
         f'{SUPABASE_URL}/rest/v1/daily_cause_list',
         headers=_sb_headers('count=none'),
         params={
-            'select': 'cause_date', 'cause_date': f'lte.{up_to}',
+            'select': 'cause_date', 'cause_date': f'lte.{lookahead}',
             'order': 'cause_date.desc', 'limit': '1',
         },
         timeout=30,

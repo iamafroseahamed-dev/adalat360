@@ -69,8 +69,10 @@ export default function TodaysListingsPage() {
 
   // ── Filters ──────────────────────────────────────────────────────────────────
   const todayUtc = useMemo(() => new Date().toISOString().split('T')[0], []);
-  const [listedDateFrom, setListedDateFrom] = useState<string>(todayUtc);
-  const [listedDateTo,   setListedDateTo  ] = useState<string>(todayUtc);
+  // defaultDate is set to the latest available matched listing date on load.
+  const [defaultDate,    setDefaultDate   ] = useState<string>(todayUtc);
+  const [listedDateFrom, setListedDateFrom] = useState<string>('');
+  const [listedDateTo,   setListedDateTo  ] = useState<string>('');
   const [filterCaseNumber, setFilterCaseNumber] = useState('');
   const [filterCnr,        setFilterCnr       ] = useState('');
   const [filterJudge,      setFilterJudge      ] = useState('');
@@ -85,6 +87,23 @@ export default function TodaysListingsPage() {
       return next;
     });
   }
+
+  // ── Initialise date filters to the latest available matched date ──────────────
+  useEffect(() => {
+    supabase
+      .from('today_matched_listings')
+      .select('listed_date')
+      .order('listed_date', { ascending: false })
+      .limit(1)
+      .single()
+      .then(({ data }) => {
+        const d = data?.listed_date ?? todayUtc;
+        setDefaultDate(d);
+        setListedDateFrom(d);
+        setListedDateTo(d);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Data loading ──────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -183,11 +202,11 @@ export default function TodaysListingsPage() {
   const safePage   = Math.min(page, totalPages);
   const paginated  = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
   const hasFilters = filterCaseNumber || filterCnr || filterJudge ||
-    listedDateFrom !== todayUtc || listedDateTo !== todayUtc;
+    listedDateFrom !== defaultDate || listedDateTo !== defaultDate;
 
   function clearFilters() {
     setFilterCaseNumber(''); setFilterCnr(''); setFilterJudge('');
-    setListedDateFrom(todayUtc); setListedDateTo(todayUtc);
+    setListedDateFrom(defaultDate); setListedDateTo(defaultDate);
     setPage(1);
   }
 
