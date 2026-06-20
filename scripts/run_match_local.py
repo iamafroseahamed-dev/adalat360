@@ -140,6 +140,18 @@ if matched > 0:
             'ecourts_sync_status': 'pending',
         })
 
-    print(f'Upserting {len(base_matches)} records...')
-    n = mod._safe_upsert_batch(base_matches)
+    # Enrich with eCourts hearing history
+    print(f'Enriching {len(base_matches)} records via eCourts...')
+    enriched, enriched_count = mod._enrich_all(base_matches)
+    print(f'eCourts enriched: {enriched_count}')
+    for m in enriched:
+        cn = m.get('case_number', '')
+        if '2295' in cn or '2295' in (m.get('cnr_number') or ''):
+            print(f'  ecourts_sync_status={m.get("ecourts_sync_status")!r}')
+            print(f'  hearing_history={m.get("hearing_history")!r}')
+            print(f'  next_hearing_date={m.get("next_hearing_date")!r}')
+            print(f'  ecourts_error={m.get("ecourts_error")!r}')
+
+    print(f'Upserting {len(enriched)} records...')
+    n = mod._safe_upsert_batch(enriched)
     print(f'Upserted: {n}')

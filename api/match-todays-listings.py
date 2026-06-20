@@ -127,13 +127,21 @@ def _latest_cause_date(up_to: str) -> Optional[str]:
 def _safe_upsert_batch(batch: List[Dict]) -> int:
     ON_CONFLICT = 'listed_date,case_id,daily_cause_list_id'
 
+    def _normalise_keys(rows: List[Dict]) -> List[Dict]:
+        """PostgREST PGRST102: all objects in a batch must share the same keys.
+        Fill any missing keys with None so the batch is uniform."""
+        all_keys: set = set()
+        for r in rows:
+            all_keys.update(r.keys())
+        return [{k: r.get(k) for k in all_keys} for r in rows]
+
     def _post(rows: List[Dict], upsert: bool) -> requests.Response:
         prefer = 'resolution=merge-duplicates,return=minimal' if upsert else 'return=minimal'
         params = {'on_conflict': ON_CONFLICT} if upsert else {}
         return requests.post(
             f'{SUPABASE_URL}/rest/v1/today_matched_listings',
             headers={**_sb_headers(), 'Prefer': prefer},
-            params=params, json=rows, timeout=30,
+            params=params, json=_normalise_keys(rows), timeout=30,
         )
 
     r = _post(batch, upsert=True)
@@ -386,7 +394,7 @@ def _parse_ecourts_html(html: str) -> Optional[Dict[str, Any]]:
             })
 
         if hearings:
-            result['hearing_history'] = json.dumps(hearings[:10])
+            result['hearing_history'] = hearings[:10]  # store as list → jsonb array, not a string
             latest = hearings[0]
             if latest.get('date'):
                 result['latest_hearing_date'] = _parse_date(latest['date']) or latest['date']
