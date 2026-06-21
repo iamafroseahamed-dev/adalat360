@@ -26,3 +26,10 @@ dist-ssr
 .env
 .env.local
 .env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Azure Storage emulator artifacts
+__azurite_db_blob*.json

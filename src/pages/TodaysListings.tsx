@@ -224,15 +224,11 @@ export default function TodaysListingsPage() {
       throw new Error('No matching listings found to refresh.');
     }
 
-    console.log(`[refresh] Attempting upsert of ${matchedRows.length} rows with fields:`, Object.keys(matchedRows[0] ?? {}));
-    console.log('[refresh] First row sample:', matchedRows[0]);
-    
     const { error: upsertError } = await supabase
       .from('today_matched_listings')
       .upsert(matchedRows, { onConflict: 'listed_date,case_id,daily_cause_list_id' });
-    
+
     if (upsertError) {
-      console.error('[refresh] Upsert error:', upsertError);
       throw new Error(`Upsert failed: ${upsertError.message || JSON.stringify(upsertError)}`);
     }
 
@@ -257,7 +253,7 @@ export default function TodaysListingsPage() {
       .maybeSingle()
       .then(({ data, error }) => {
         if (error) {
-          console.warn('[TodaysListings] latest date lookup failed:', error.message);
+          // silently fall back to today's date
         }
         const d = data?.listed_date ?? todayUtc;
         setDefaultDate(d);
