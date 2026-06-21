@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Scale, Mail, Info, Plus, Edit2, Trash2, Bell } from 'lucide-react';
+import { Scale, Info, Plus, Edit2, Trash2, Bell } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -245,13 +245,6 @@ export default function Settings() {
           <div className="rounded-md border bg-muted/30 p-4 space-y-3 text-sm">
             <div className="grid grid-cols-[140px_1fr] gap-y-2">
               <span className="text-muted-foreground font-medium">Version</span><span>1.0</span>
-              <span className="text-muted-foreground font-medium">Developed by</span><span>Afrose Ahamed</span>
-              <span className="text-muted-foreground font-medium">Contact</span>
-              <a href="mailto:iamafroseahamed@gmail.com"
-                className="flex items-center gap-1.5 text-blue-600 hover:underline">
-                <Mail className="h-3.5 w-3.5" />
-                iamafroseahamed@gmail.com
-              </a>
             </div>
           </div>
         </CardContent>
