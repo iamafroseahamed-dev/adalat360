@@ -13,14 +13,24 @@ import json
 import os
 from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
 import requests
+from dotenv import dotenv_values
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+for key, value in dotenv_values(ROOT_DIR / '.env').items():
+    if value is not None:
+        os.environ.setdefault(key, value)
 
 # ── Supabase credentials (set in Vercel: Settings → Environment Variables) ────
-SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
-SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+SUPABASE_URL = (os.environ.get('SUPABASE_URL', '') or os.environ.get('VITE_SUPABASE_URL', '')).rstrip('/')
+SUPABASE_KEY = (
+    os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+    or os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', '')
+)
 
 _COLS = (
     'cause_date,court_name,bench,court_hall,item_number,case_number,'
