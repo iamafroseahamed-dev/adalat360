@@ -31,8 +31,8 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 dotenv_config = dotenv_values(ROOT_DIR / '.env')
 os.environ.setdefault('VITE_SUPABASE_URL', dotenv_config.get('VITE_SUPABASE_URL', ''))
 os.environ.setdefault('VITE_SUPABASE_PUBLISHABLE_KEY', dotenv_config.get('VITE_SUPABASE_PUBLISHABLE_KEY', ''))
-os.environ.setdefault('SUPABASE_URL', os.environ.get('VITE_SUPABASE_URL', ''))
-os.environ.setdefault('SUPABASE_SERVICE_ROLE_KEY', os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', ''))
+os.environ.setdefault('SUPABASE_URL', os.environ.get('SUPABASE_URL', os.environ.get('VITE_SUPABASE_URL', '')))
+os.environ.setdefault('SUPABASE_SERVICE_ROLE_KEY', os.environ.get('SUPABASE_SERVICE_ROLE_KEY', ''))
 
 try:
     import uvicorn
@@ -695,7 +695,7 @@ def refresh_matched_listings(http_request: Request) -> JSONResponse:
     today = date.today().isoformat()
     auth_header = http_request.headers.get('authorization', '')
     supabase_url = settings.SUPABASE_URL or os.environ.get('VITE_SUPABASE_URL', '').rstrip('/')
-    supabase_key = settings.SUPABASE_SERVICE_ROLE_KEY or os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', '')
+    supabase_key = settings.SUPABASE_SERVICE_ROLE_KEY
     lookahead = (date.fromisoformat(today) + timedelta(days=7)).isoformat()
     query_latest_sql = '''
         SELECT MAX(cause_date) AS cause_date
@@ -1032,7 +1032,7 @@ def get_todays_cause_list() -> JSONResponse:
     print(f'[cause-list] Reading from Supabase | date={cause_date_str}')
 
     supabase_url = settings.SUPABASE_URL or os.environ.get('VITE_SUPABASE_URL', '').rstrip('/')
-    supabase_key = settings.SUPABASE_SERVICE_ROLE_KEY or os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', '')
+    supabase_key = settings.SUPABASE_SERVICE_ROLE_KEY
 
     if not supabase_url or not supabase_key:
         raise HTTPException(
