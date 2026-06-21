@@ -55,7 +55,7 @@ export default function Settings() {
   const [msg91WhatsappFlowId, setMsg91WhatsappFlowId] = useState('');
   const [msg91Configured, setMsg91Configured] = useState(false);
 
-  async function authHeaders() {
+  async function authHeaders(): Promise<Record<string, string>> {
     const { data: { session } } = await supabase.auth.getSession();
     return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
   }
