@@ -817,7 +817,7 @@ export default function TodaysListingsPage() {
                                 ) : (
                                   <div className="relative pl-4 space-y-0">
                                     <div className="absolute left-4 top-2 bottom-2 w-px bg-border" />
-                                    {hearings.map((h, i) => (
+                                    {[...hearings].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '')).map((h, i) => (
                                       <div key={i} className="relative flex gap-4 pb-4 last:pb-0">
                                         <div className="absolute -left-[3px] top-[5px] w-2.5 h-2.5 rounded-full border-2 border-primary bg-background z-10" />
                                         <div className="pl-4 flex-1 min-w-0">
