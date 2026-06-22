@@ -11,10 +11,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  ChevronLeft, ChevronRight, ChevronDown, ChevronUp, RefreshCw, X,
+  ChevronLeft, ChevronRight, RefreshCw, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { TodayMatchedListing, HearingEntry } from '@/types';
+import type { TodayMatchedListing } from '@/types';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ function fmtDate(iso: string | null | undefined) {
   });
 }
 
-type SortField = 'listed_date' | 'court_hall' | 'item_number' | 'case_number' | 'next_hearing_date';
+type SortField = 'listed_date' | 'court_hall' | 'item_number' | 'case_number';
 type SortDir   = 'asc' | 'desc';
 
 const PAGE_SIZE = 20;
@@ -62,7 +62,6 @@ export default function TodaysListingsPage() {
   const [error,   setError]               = useState<string | null>(null);
   const [listings, setListings]           = useState<TodayMatchedListing[]>([]);
   const [isRefreshing, setIsRefreshing]   = useState(false);
-  const [expandedRows, setExpandedRows]   = useState<Set<string>>(new Set());
   const [listingHistoryMap, setListingHistoryMap] = useState<
     Map<string, { count: number; firstListed: string; lastListed: string }>
   >(new Map());
@@ -77,14 +76,6 @@ export default function TodaysListingsPage() {
   const [sortField, setSortField] = useState<SortField>('court_hall');
   const [sortDir,   setSortDir  ] = useState<SortDir>('asc');
   const [page, setPage]           = useState(1);
-
-  function toggleRow(id: string) {
-    setExpandedRows(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
 
   // ── Data loading ──────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -172,7 +163,6 @@ export default function TodaysListingsPage() {
         case 'court_hall':        av = a.court_hall ?? '';                            bv = b.court_hall ?? '';                            break;
         case 'item_number':       av = a.item_number ?? '';                           bv = b.item_number ?? '';                           break;
         case 'case_number':       av = a.case_number ?? '';                           bv = b.case_number ?? '';                           break;
-        case 'next_hearing_date': av = a.next_hearing_date ?? '';                     bv = b.next_hearing_date ?? '';                     break;
       }
       const cmp = av.localeCompare(bv, undefined, { numeric: true });
       return sortDir === 'asc' ? cmp : -cmp;
@@ -316,8 +306,6 @@ export default function TodaysListingsPage() {
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-background">
                 <TableRow>
-                  {/* Expand toggle column */}
-                  <TableHead className="w-8" />
                   <TableHead className="cursor-pointer select-none whitespace-nowrap"
                     onClick={() => toggleSort('listed_date')}>
                     Listed Date <SortIcon field="listed_date" />
@@ -334,18 +322,11 @@ export default function TodaysListingsPage() {
                     onClick={() => toggleSort('case_number')}>
                     Case Number <SortIcon field="case_number" />
                   </TableHead>
-                  <TableHead className="whitespace-nowrap">CNR Number</TableHead>
                   <TableHead className="whitespace-nowrap">Petitioner</TableHead>
                   <TableHead className="whitespace-nowrap">Respondent</TableHead>
                   <TableHead className="whitespace-nowrap">Judge</TableHead>
-                  <TableHead className="cursor-pointer select-none whitespace-nowrap"
-                    onClick={() => toggleSort('next_hearing_date')}>
-                    Latest Hearing <SortIcon field="next_hearing_date" />
-                  </TableHead>
-                  <TableHead className="whitespace-nowrap">Next Hearing</TableHead>
                   <TableHead className="whitespace-nowrap">Case Status</TableHead>
                   <TableHead className="whitespace-nowrap">Sensitivity</TableHead>
-                  <TableHead className="whitespace-nowrap">CLA Party</TableHead>
                   <TableHead className="whitespace-nowrap">Notification</TableHead>
                 </TableRow>
               </TableHeader>
@@ -353,38 +334,17 @@ export default function TodaysListingsPage() {
               <TableBody>
                 {paginated.length === 0 ? (
                   <TableRow>
-                      <TableCell colSpan={15}
+                      <TableCell colSpan={10}
                       className="py-10 text-center text-muted-foreground">
                       No records match your filters.
                     </TableCell>
                   </TableRow>
                 ) : (
                   paginated.flatMap(record => {
-                    const isExpanded = expandedRows.has(record.id);
-                    const hearings: HearingEntry[] = Array.isArray(record.hearing_history)
-                      ? record.hearing_history
-                      : [];
                     const hist = listingHistoryMap.get(record.case_id);
 
                     return [
-                      <TableRow key={record.id}
-                        className={isExpanded ? 'bg-muted/20' : undefined}>
-
-                        {/* Expand toggle */}
-                        <TableCell className="w-8 p-1">
-                          <Button
-                            variant="ghost" size="icon" className="h-6 w-6"
-                            disabled={hearings.length === 0}
-                            title={hearings.length === 0
-                              ? 'No hearing history stored'
-                              : isExpanded ? 'Collapse' : 'Show hearing history'}
-                            onClick={() => toggleRow(record.id)}
-                          >
-                            {isExpanded
-                              ? <ChevronUp className="h-3.5 w-3.5" />
-                              : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
-                          </Button>
-                        </TableCell>
+                      <TableRow key={record.id}>
 
                         {/* Listed Date + history count */}
                         <TableCell className="whitespace-nowrap">
@@ -419,9 +379,6 @@ export default function TodaysListingsPage() {
                           </div>
                         </TableCell>
 
-                        <TableCell className="whitespace-nowrap font-mono text-xs">
-                          {record.cnr_number ?? record.case?.cnr_number ?? '\u2014'}
-                        </TableCell>
                         <TableCell className="max-w-[140px] truncate"
                           title={record.petitioner ?? undefined}>
                           {record.petitioner ?? '\u2014'}
@@ -431,73 +388,16 @@ export default function TodaysListingsPage() {
                           {record.respondent ?? '\u2014'}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">{record.judge_name ?? '\u2014'}</TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {record.latest_hearing_date ? fmtDate(record.latest_hearing_date) : '\u2014'}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {record.next_hearing_date ? fmtDate(record.next_hearing_date) : '\u2014'}
-                        </TableCell>
                         <TableCell className="whitespace-nowrap text-xs">
-                          {record.latest_case_status ?? record.case?.case_status ?? '\u2014'}
+                          {record.stage  ?? '\u2014'}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-xs">
                           {record.case?.sensitivity ?? '\u2014'}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-xs">
-                          {record.case?.cla_party_status ?? '\u2014'}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           <NotifBadge status={record.notification_status} />
                         </TableCell>
                       </TableRow>,
-
-                      /* Expanded hearing history row */
-                      isExpanded && (
-                        <TableRow key={`${record.id}-exp`}
-                          className="bg-muted/10 hover:bg-muted/10">
-                          <TableCell colSpan={15} className="p-0">
-                            <div className="px-10 py-3 border-t">
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                                Hearing History
-                                {record.ecourts_synced_at && (
-                                  <span className="ml-2 font-normal normal-case">
-                                    (synced {fmtDate(record.ecourts_synced_at)})
-                                  </span>
-                                )}
-                              </p>
-                              {hearings.length === 0 ? (
-                                <p className="text-xs text-muted-foreground py-1">
-                                  No hearing history available.
-                                </p>
-                              ) : (
-                                <table className="w-full text-xs border-collapse">
-                                  <thead>
-                                    <tr className="border-b text-muted-foreground">
-                                      <th className="text-left py-1 pr-4 font-medium">Date</th>
-                                      <th className="text-left py-1 pr-4 font-medium">Stage</th>
-                                      <th className="text-left py-1 pr-4 font-medium">Business / Purpose</th>
-                                      <th className="text-left py-1 font-medium">Remarks</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {hearings.map((h, i) => (
-                                      <tr key={i}
-                                        className="border-b border-muted/30 last:border-0">
-                                        <td className="py-1 pr-4 font-mono whitespace-nowrap">
-                                          {fmtDate(h.date) || h.date || '\u2014'}
-                                        </td>
-                                        <td className="py-1 pr-4">{h.stage || '\u2014'}</td>
-                                        <td className="py-1 pr-4">{h.business || '\u2014'}</td>
-                                        <td className="py-1">{h.remarks || '\u2014'}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ),
                     ].filter(Boolean);
                   })
                 )}
