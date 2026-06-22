@@ -222,33 +222,138 @@ export default function TodaysListingsPage() {
     setDetailsLoading(true);
     setDetailsError(null);
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+      const cnr = record.case?.cnr_number ?? record.cnr_number ?? '';
+      const caseNumber = record.case_number ?? record.case?.case_number ?? '';
+      const apiBase = import.meta.env.VITE_ECOURTS_API_BASE_URL as string;
+      const apiKey = import.meta.env.VITE_ECOURTS_API_KEY as string;
 
-      const res = await fetch(`${supabaseUrl}/functions/v1/case-details`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${supabaseAnonKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          caseId: record.case_id,
-          caseNumber: record.case_number ?? record.case?.case_number ?? '',
-          cnrNumber: record.case?.cnr_number ?? record.cnr_number ?? '',
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data?.success) {
-        const msg = data?.error ?? data?.message ?? data?.detail ?? `Edge Function returned HTTP ${res.status}`;
-        setDetailsError(msg);
+      if (!apiBase || !apiKey) {
+        setDetailsError('Missing VITE_ECOURTS_API_BASE_URL or VITE_ECOURTS_API_KEY in .env');
         return;
       }
 
-      setCaseDetails(data.caseDetails as CaseDetails);
+      // If CNR exists, fetch case details directly
+      let resolvedCnr = cnr;
+
+      if (!resolvedCnr) {
+        // Search by case number to discover CNR
+        if (!caseNumber) {
+          setDetailsError('No CNR and no case number available to search.');
+          return;
+        }
+        const parsed = caseNumber.replace(/\s+/g, '').toUpperCase().split('/');
+        if (parsed.length !== 3) {
+          setDetailsError(`Cannot parse case number: ${caseNumber}. Expected TYPE/NUMBER/YEAR.`);
+          return;
+        }
+
+        const searchRes = await fetch(`${apiBase}/api/partner/search`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            case_type: parsed[0],
+            case_number: parsed[1].replace(/\D/g, ''),
+            year: parsed[2].replace(/\D/g, ''),
+            state_code: '33',
+            court_code: '1',
+          }),
+        });
+        const searchData = await searchRes.json();
+        console.log('[case-details] Search response:', searchRes.status, searchData);
+
+        if (!searchRes.ok) {
+          setDetailsError(`Search API returned ${searchRes.status}: ${JSON.stringify(searchData)}`);
+          return;
+        }
+
+        const results = Array.isArray(searchData) ? searchData : searchData?.results ?? searchData?.con ?? [];
+        if (!results.length || !results[0]?.cino) {
+          setDetailsError(`Case not found in eCourtsIndia. Response: ${JSON.stringify(searchData).slice(0, 200)}`);
+          return;
+        }
+
+        resolvedCnr = results[0].cino;
+
+        // Save discovered CNR to database
+        if (record.case_id) {
+          await supabase
+            .from('cases')
+            .update({ cnr_number: resolvedCnr, cnr_discovered_at: new Date().toISOString() })
+            .eq('id', record.case_id);
+        }
+      }
+
+      // Fetch case details by CNR
+      const detailUrl = `${apiBase}/api/partner/case/${encodeURIComponent(resolvedCnr)}`;
+      console.log('[case-details] Fetching:', detailUrl);
+
+      const res = await fetch(detailUrl, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Accept': 'application/json',
+        },
+      });
+      const data = await res.json();
+      console.log('[case-details] Response:', res.status, data);
+
+      if (!res.ok) {
+        setDetailsError(`eCourts API returned ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+        return;
+      }
+
+      // Map API response to CaseDetails
+      const caseDetails: CaseDetails = {
+        caseNumber: data.case_no ?? `${data.case_type ?? ''}/${data.reg_no ?? ''}/${data.reg_year ?? ''}`,
+        cnrNumber: data.cino ?? resolvedCnr,
+        courtName: data.court_name ?? 'Madras High Court',
+        caseStatus: data.case_status ?? '',
+        nextHearingDate: data.next_hearing_date ?? null,
+        petitioners: data.petitioner ?? [],
+        respondents: data.respondent ?? [],
+        petitionerAdvocates: data.pet_adv ?? [],
+        respondentAdvocates: data.res_adv ?? [],
+        hearingHistory: (data.hearing_history ?? []).map((h: Record<string, string>) => ({
+          date: h.hearing_date ?? '',
+          purpose: h.purpose ?? '',
+          businessDate: h.business_date ?? '',
+          remarks: h.remarks ?? '',
+        })),
+        orders: (data.orders ?? []).map((o: Record<string, string>) => ({
+          orderDate: o.order_date ?? '',
+          orderNumber: o.order_no ?? '',
+          orderType: o.order_type ?? '',
+          orderUrl: o.order_url ?? '',
+        })),
+        filingDate: data.filing_date ?? null,
+        registrationDate: data.reg_date ?? null,
+        disposalDate: data.disposal_date ?? null,
+        disposalNature: data.disposal_nature ?? null,
+        acts: data.acts ?? [],
+      };
+
+      setCaseDetails(caseDetails);
+
+      // Save to database for caching
+      if (record.case_id) {
+        await supabase
+          .from('cases')
+          .update({
+            case_details_json: caseDetails,
+            case_details_last_fetched: new Date().toISOString(),
+            case_status: data.case_status || undefined,
+            petitioner: data.petitioner?.join(', ') || undefined,
+            respondent: data.respondent?.join(', ') || undefined,
+            next_hearing_date: data.next_hearing_date || undefined,
+          })
+          .eq('id', record.case_id);
+      }
+
       await fetchData();
     } catch (err) {
+      console.error('[case-details] Error:', err);
       setDetailsError(err instanceof Error ? err.message : 'Unable to retrieve case details');
     } finally {
       setDetailsLoading(false);
