@@ -210,36 +210,6 @@ function buildPdfUrl(record: {
   );
 }
 
-function hasOrderFields(value: Record<string, unknown>): boolean {
-  return Boolean(clean(value.case_no) || clean(value.cino));
-}
-
-function parseConRecords(value: unknown): Array<Record<string, unknown>> {
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return parseConRecords(parsed);
-    } catch {
-      return [];
-    }
-  }
-
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => parseConRecords(entry));
-  }
-
-  if (typeof value === 'object' && value !== null) {
-    const record = value as Record<string, unknown>;
-    if (hasOrderFields(record)) {
-      return [record];
-    }
-
-    return Object.values(record).flatMap((entry) => parseConRecords(entry));
-  }
-
-  return [];
-}
-
 function headingKey(value: string): string {
   return clean(value).toLowerCase();
 }
