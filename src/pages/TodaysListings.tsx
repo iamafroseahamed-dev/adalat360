@@ -14,9 +14,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  ChevronLeft, ChevronRight, Download, ExternalLink, Eye, FileText, Loader2, RefreshCw, X,
+  ChevronLeft, ChevronRight, Download, Eye, FileText, Loader2, RefreshCw, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getCaseDetails, getOrder } from '@/services/ecourtsApi';
 import type { TodayMatchedListing } from '@/types';
 
 type CaseOrder = {
@@ -115,8 +116,7 @@ export default function TodaysListingsPage() {
   const [selectedRecord, setSelectedRecord] = useState<TodayMatchedListing | null>(null);
   const [caseDetails, setCaseDetails] = useState<CaseDetails | null>(null);
   const [orderDownloading, setOrderDownloading] = useState<string | null>(null);
-  const [pdfViewerUrl, setPdfViewerUrl] = useState<string | null>(null);
-  const [pdfViewerTitle, setPdfViewerTitle] = useState('');
+  const [lastOrderInfo, setLastOrderInfo] = useState<{ filename: string; downloadFilename?: string } | null>(null);
 
   // ── Data loading ──────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -337,26 +337,12 @@ export default function TodaysListingsPage() {
         }
       }
 
-      // Fetch case details by CNR
-      const detailUrl = `/ecourts-proxy/api/partner/case/${encodeURIComponent(resolvedCnr)}`;
-      console.log('[case-details] Fetching:', detailUrl);
-
-      const res = await fetch(detailUrl, {
-        headers: { 'Accept': 'application/json' },
-      });
-      const resText = await res.text();
-      console.log('[case-details] Response:', res.status, resText.slice(0, 500));
-
-      if (!res.ok || !resText) {
-        setDetailsError(`eCourts API returned ${res.status}: ${resText.slice(0, 300) || '(empty body)'}`);
-        return;
-      }
-
+      // Fetch case details by CNR via the shared eCourts service.
       let data: any;
       try {
-        data = JSON.parse(resText);
-      } catch {
-        setDetailsError(`eCourts API returned non-JSON: ${resText.slice(0, 300)}`);
+        data = await getCaseDetails(resolvedCnr);
+      } catch (e) {
+        setDetailsError(e instanceof Error ? e.message : 'Unable to retrieve case details');
         return;
       }
       console.log('[case-details] Parsed:', data);
@@ -439,56 +425,64 @@ export default function TodaysListingsPage() {
     setSelectedRecord(record);
     setCaseDetails(null);
     setDetailsError(null);
+    setLastOrderInfo(null);
     setIsDetailsOpen(true);
     void loadCaseDetails(record);
   }
 
-  // Resolve an order's download URL via the Supabase Edge Function (keeps API key server-side).
-  async function resolveOrderDownload(order: CaseOrder): Promise<{ url: string; filename: string } | null> {
-    if (!caseDetails?.cnrNumber || !order.orderUrl) {
-      toast.error('Missing CNR or order file reference.');
-      return null;
-    }
-    const { data, error } = await supabase.functions.invoke('download-order', {
-      body: { cnr: caseDetails.cnrNumber, filename: order.orderUrl },
-    });
-    if (error) {
-      toast.error(error.message ?? 'Unable to fetch order.');
-      return null;
-    }
-    if (!data?.success) {
-      toast.error(data?.error ?? data?.message ?? 'Unable to fetch order.');
-      return null;
-    }
-    const url: string = data.downloadUrl ?? data.url ?? '';
-    const filename: string = data.downloadFilename ?? order.orderUrl;
-    if (!url) {
-      toast.error('Order download URL not returned by server.');
-      return null;
-    }
-    return { url, filename };
-  }
-
+  // Download an order PDF directly in the browser via the shared eCourts service.
   async function handleDownloadOrder(order: CaseOrder) {
-    const key = `${order.category}:${order.orderUrl}`;
+    const cnr = caseDetails?.cnrNumber ?? '';
+    if (!cnr || !order.orderUrl) {
+      toast.error('Unable to download order.');
+      return;
+    }
+    const key = `dl:${order.category}:${order.orderUrl}`;
     setOrderDownloading(key);
     try {
-      const resolved = await resolveOrderDownload(order);
-      if (resolved) window.open(resolved.url, '_blank', 'noopener,noreferrer');
+      const result = await getOrder(cnr, order.orderUrl);
+      setLastOrderInfo({ filename: result.filename, downloadFilename: result.downloadFilename });
+
+      const href = result.url ?? result.blobUrl;
+      if (!href) throw new Error('No downloadable file was returned.');
+
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = result.downloadFilename ?? result.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      if (result.blobUrl) {
+        window.setTimeout(() => URL.revokeObjectURL(result.blobUrl as string), 60_000);
+      }
+      toast.success(`Downloaded ${result.downloadFilename ?? result.filename}`);
+    } catch (err) {
+      console.error('[order-download] Error:', err);
+      toast.error('Unable to download order.');
     } finally {
       setOrderDownloading(null);
     }
   }
 
+  // Open an order PDF in a new browser tab via the shared eCourts service.
   async function handleViewOrder(order: CaseOrder) {
+    const cnr = caseDetails?.cnrNumber ?? '';
+    if (!cnr || !order.orderUrl) {
+      toast.error('Unable to download order.');
+      return;
+    }
     const key = `view:${order.category}:${order.orderUrl}`;
     setOrderDownloading(key);
     try {
-      const resolved = await resolveOrderDownload(order);
-      if (resolved) {
-        setPdfViewerUrl(resolved.url);
-        setPdfViewerTitle(`${order.orderType || 'Order'} \u2014 ${fmtDate(order.orderDate)}`);
-      }
+      const result = await getOrder(cnr, order.orderUrl);
+      setLastOrderInfo({ filename: result.filename, downloadFilename: result.downloadFilename });
+
+      const href = result.url ?? result.blobUrl;
+      if (!href) throw new Error('No viewable file was returned.');
+      window.open(href, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      console.error('[order-view] Error:', err);
+      toast.error('Unable to download order.');
     } finally {
       setOrderDownloading(null);
     }
@@ -848,7 +842,7 @@ export default function TodaysListingsPage() {
                       </thead>
                       <tbody>
                         {caseDetails.orders.map((o, i) => {
-                          const dlKey = `${o.category}:${o.orderUrl}`;
+                          const dlKey = `dl:${o.category}:${o.orderUrl}`;
                           const viewKey = `view:${o.category}:${o.orderUrl}`;
                           return (
                             <tr key={i} className="border-b last:border-0">
@@ -896,37 +890,17 @@ export default function TodaysListingsPage() {
                     </table>
                   </div>
                 )}
+                {lastOrderInfo && (
+                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs leading-5">
+                    <p><span className="font-medium">Filename:</span> {lastOrderInfo.filename}</p>
+                    <p>
+                      <span className="font-medium">Download Filename:</span>{' '}
+                      {lastOrderInfo.downloadFilename ?? '\u2014'}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* PDF Order Viewer */}
-      <Dialog open={!!pdfViewerUrl} onOpenChange={(open) => { if (!open) setPdfViewerUrl(null); }}>
-        <DialogContent className="h-[90vh] max-w-5xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              {pdfViewerTitle || 'Order'}
-              {pdfViewerUrl && (
-                <a
-                  href={pdfViewerUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-auto inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                >
-                  <ExternalLink className="h-3 w-3" /> Open in new tab
-                </a>
-              )}
-            </DialogTitle>
-          </DialogHeader>
-          {pdfViewerUrl && (
-            <iframe
-              src={pdfViewerUrl}
-              title="Order PDF"
-              className="h-full w-full rounded-md border"
-            />
           )}
         </DialogContent>
       </Dialog>

@@ -29,6 +29,16 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        '/ecourts-orders-proxy': {
+          target: env.VITE_ECOURTS_ORDERS_BASE_URL || 'https://webapi.ecourtsindia.com',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/ecourts-orders-proxy/, ''),
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              proxyReq.setHeader('Authorization', `Bearer ${env.VITE_ECOURTS_API_KEY || ''}`);
+            });
+          },
+        },
       },
     },
   };
