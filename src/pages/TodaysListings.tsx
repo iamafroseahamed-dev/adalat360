@@ -14,14 +14,14 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  ChevronLeft, ChevronRight, Download, Eye, Loader2, RefreshCw, X,
+  ChevronLeft, ChevronRight, Loader2, RefreshCw, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { TodayMatchedListing } from '@/types';
 import {
-  startCaseDetails,
-  submitCaseCaptcha,
-  type EcourtsCaseDetails,
+  loadShowRecordsCaptcha,
+  submitShowRecordsCaptcha,
+  type EcourtsCaptchaChallenge,
   EcourtsError,
 } from '@/services/ecourtsFrontendApi';
 
@@ -36,27 +36,6 @@ function fmtDate(iso: string | null | undefined) {
 
 type SortField = 'listed_date' | 'court_hall' | 'item_number' | 'case_number';
 type SortDir   = 'asc' | 'desc';
-
-type CaseOrder = {
-  orderDate: string;
-  orderNumber: string;
-  downloadUrl: string;
-};
-
-type CaseDetails = {
-  caseNumber: string;
-  cnrNumber: string;
-  caseStatus: string;
-  stage: string;
-  petitioner: string;
-  respondent: string;
-  judge: string;
-  courtHall: string;
-  nextHearingDate: string;
-  hearingHistory: Array<{ date: string; purpose: string; stage: string; remarks: string }>;
-  orders: CaseOrder[];
-  rawResponse: unknown;
-};
 
 const PAGE_SIZE = 20;
 
@@ -106,16 +85,13 @@ export default function TodaysListingsPage() {
   const [sortField, setSortField] = useState<SortField>('court_hall');
   const [sortDir,   setSortDir  ] = useState<SortDir>('asc');
   const [page, setPage]           = useState(1);
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [isCaptchaDialogOpen, setIsCaptchaDialogOpen] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<TodayMatchedListing | null>(null);
-  const [caseDetails, setCaseDetails] = useState<CaseDetails | null>(null);
-  const [detailsTab, setDetailsTab] = useState<'overview' | 'hearings' | 'orders' | 'raw'>('overview');
+  const [captchaChallenge, setCaptchaChallenge] = useState<EcourtsCaptchaChallenge | null>(null);
   const [captchaImageUrl, setCaptchaImageUrl] = useState<string | null>(null);
   const [captchaValue, setCaptchaValue] = useState('');
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const [showCaptchaModal, setShowCaptchaModal] = useState(false);
   const [captchaSubmitting, setCaptchaSubmitting] = useState(false);
   const [detailsPhase, setDetailsPhase] = useState<string | null>(null);
 
@@ -233,27 +209,10 @@ export default function TodaysListingsPage() {
     return <span className="ml-1">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>;
   }
 
-  function mapServiceDetails(input: EcourtsCaseDetails): CaseDetails {
-    return {
-      caseNumber: input.overview.caseNumber,
-      cnrNumber: input.overview.cnrNumber,
-      caseStatus: input.overview.caseStatus,
-      stage: input.overview.stage,
-      petitioner: input.overview.petitioner,
-      respondent: input.overview.respondent,
-      judge: input.overview.judge,
-      courtHall: input.overview.courtHall,
-      nextHearingDate: input.overview.nextHearingDate,
-      hearingHistory: input.hearings,
-      orders: input.orders,
-      rawResponse: input.rawResponse,
-    };
-  }
-
   function toUserErrorMessage(err: unknown): string {
     if (err instanceof EcourtsError) return err.message;
     if (err instanceof Error) return err.message;
-    return 'Unable To Fetch History';
+    return 'Unable to load showRecords test';
   }
 
   async function handleViewDetails(row: TodayMatchedListing) {
@@ -264,26 +223,18 @@ export default function TodaysListingsPage() {
     }
 
     setSelectedRecord(row);
-    setCaseDetails(null);
     setDetailsError(null);
-    setDetailsTab('overview');
+    setCaptchaChallenge(null);
     setCaptchaValue('');
     setCaptchaImageUrl(null);
-    setCaptchaToken(null);
-    setShowCaptchaModal(false);
-    setIsDetailsOpen(true);
+    setIsCaptchaDialogOpen(true);
     setDetailsLoading(true);
     setDetailsPhase('Loading Captcha');
 
     try {
-      const result = await startCaseDetails(caseNumber);
-      if (result.kind === 'captcha') {
-        setCaptchaImageUrl(result.captchaImage);
-        setCaptchaToken(result.captchaToken);
-        setShowCaptchaModal(true);
-      } else {
-        setCaseDetails(mapServiceDetails(result.details));
-      }
+      const challenge = await loadShowRecordsCaptcha();
+      setCaptchaChallenge(challenge);
+      setCaptchaImageUrl(challenge.captchaImage);
     } catch (err) {
       setDetailsError(toUserErrorMessage(err));
     } finally {
@@ -300,45 +251,18 @@ export default function TodaysListingsPage() {
       return;
     }
 
-    if (!captchaToken) {
-      toast.error('Captcha session expired. Please reopen and try again.');
-      return;
-    }
-
     setCaptchaSubmitting(true);
     setDetailsError(null);
     setDetailsPhase('Searching Case');
     try {
-      const caseNumber = (selectedRecord.case_number ?? '').trim().toUpperCase();
-      const result = await submitCaseCaptcha({ caseNumber, captcha, captchaToken });
-
-      if (result.kind === 'captcha') {
-        // Wrong captcha — backend issued a fresh challenge.
-        setCaptchaImageUrl(result.captchaImage);
-        setCaptchaToken(result.captchaToken);
-        setCaptchaValue('');
-        setDetailsError('Invalid Captcha');
-        return;
-      }
-
-      setCaseDetails(mapServiceDetails(result.details));
-      setShowCaptchaModal(false);
-      setCaptchaValue('');
-      toast.success('Case details loaded.');
+      await submitShowRecordsCaptcha({ captchaValue: captcha });
+      toast.success('showRecords response logged to the browser console.');
     } catch (err) {
       setDetailsError(toUserErrorMessage(err));
     } finally {
       setCaptchaSubmitting(false);
       setDetailsPhase(null);
     }
-  }
-
-  function downloadOrderPdf(order: CaseOrder) {
-    if (!order.downloadUrl) {
-      toast.error('PDF URL not available for this order.');
-      return;
-    }
-    window.open(order.downloadUrl, '_blank', 'noopener,noreferrer');
   }
 
   return (
