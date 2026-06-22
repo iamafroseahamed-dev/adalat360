@@ -44,6 +44,12 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: true,
           rewrite: (p) => p.replace(/^\/hcservices-proxy/, ''),
+          cookieDomainRewrite: {
+            '*': '',
+          },
+          cookiePathRewrite: {
+            '*': '/',
+          },
         },
       },
     },
