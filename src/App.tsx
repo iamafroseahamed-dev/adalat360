@@ -11,6 +11,7 @@ const Login          = lazy(() => import('@/pages/Login'));
 const Dashboard      = lazy(() => import('@/pages/Dashboard'));
 const Cases          = lazy(() => import('@/pages/Cases'));
 const TodaysListings  = lazy(() => import('@/pages/TodaysListings'));
+const UpcomingHearings = lazy(() => import('@/pages/UpcomingHearings'));
 const Settings       = lazy(() => import('@/pages/Settings'));
 
 function PageLoader() {
@@ -42,6 +43,7 @@ export default function App() {
                 <Route path="/dashboard"       element={<Dashboard />} />
                 <Route path="/cases"           element={<Cases />} />
                 <Route path="/todays-listings" element={<TodaysListings />} />
+                <Route path="/upcoming-hearings" element={<UpcomingHearings />} />
                 <Route path="/settings"        element={<Settings />} />
               </Route>
             </Route>
