@@ -290,13 +290,29 @@ export default function TodaysListingsPage() {
           return;
         }
 
-        const results = Array.isArray(searchData) ? searchData : searchData?.results ?? searchData?.con ?? [];
-        if (!results.length || !results[0]?.cino) {
+        const results = Array.isArray(searchData)
+          ? searchData
+          : searchData?.results
+            ?? searchData?.con
+            ?? searchData?.data?.results
+            ?? searchData?.data
+            ?? [];
+        const firstResult = Array.isArray(results) ? (results[0] ?? null) : null;
+        const discoveredCnr = String(
+          firstResult?.cino
+          ?? firstResult?.cnr
+          ?? firstResult?.cnrNumber
+          ?? firstResult?.cnr_number
+          ?? firstResult?.id
+          ?? '',
+        ).trim();
+
+        if (!firstResult || !discoveredCnr) {
           setDetailsError(`Case not found in eCourtsIndia. Response: ${JSON.stringify(searchData).slice(0, 200)}`);
           return;
         }
 
-        resolvedCnr = results[0].cino;
+        resolvedCnr = discoveredCnr;
 
         // Save discovered CNR to database
         if (record.case_id) {
