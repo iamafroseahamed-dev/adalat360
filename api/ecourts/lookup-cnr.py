@@ -300,17 +300,14 @@ class handler(BaseHTTPRequestHandler):
             resp = session.post(
                 ECOURTS_CASE_URL,
                 data={
-                    "action_code": "showRecords",
                     "court_code": "1",
                     "state_code": "10",
                     "court_complex_code": "1",
-                    "caseStatusSearchType": "CScaseNumber",
+                    "caseStatusSearchType": "COcaseNumber",
                     "captcha": captcha,
-                    "case_type": code,
-                    "case_no": case_no,
-                    "rgyear": case_year,
-                    "caseNoType": "new",
-                    "displayOldCaseNo": "NO",
+                    "case_type_order": code,
+                    "case_no_order": case_no,
+                    "rgyearCaseOrder": case_year,
                 },
                 headers={
                     "User-Agent": "Mozilla/5.0",
