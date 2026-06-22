@@ -254,11 +254,13 @@ export default function TodaysListingsPage() {
             court_code: '1',
           }),
         });
-        const searchData = await searchRes.json();
-        console.log('[case-details] Search response:', searchRes.status, searchData);
+        const searchText = await searchRes.text();
+        console.log('[case-details] Search response:', searchRes.status, searchText.slice(0, 500));
+        let searchData: any = {};
+        try { searchData = searchText ? JSON.parse(searchText) : {}; } catch { /* not JSON */ }
 
         if (!searchRes.ok) {
-          setDetailsError(`Search API returned ${searchRes.status}: ${JSON.stringify(searchData)}`);
+          setDetailsError(`Search API returned ${searchRes.status}: ${searchText.slice(0, 300)}`);
           return;
         }
 
@@ -286,13 +288,22 @@ export default function TodaysListingsPage() {
       const res = await fetch(detailUrl, {
         headers: { 'Accept': 'application/json' },
       });
-      const data = await res.json();
-      console.log('[case-details] Response:', res.status, data);
+      const resText = await res.text();
+      console.log('[case-details] Response:', res.status, resText.slice(0, 500));
 
-      if (!res.ok) {
-        setDetailsError(`eCourts API returned ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+      if (!res.ok || !resText) {
+        setDetailsError(`eCourts API returned ${res.status}: ${resText.slice(0, 300) || '(empty body)'}`);
         return;
       }
+
+      let data: any;
+      try {
+        data = JSON.parse(resText);
+      } catch {
+        setDetailsError(`eCourts API returned non-JSON: ${resText.slice(0, 300)}`);
+        return;
+      }
+      console.log('[case-details] Parsed:', data);
 
       // Map API response to CaseDetails
       const caseDetails: CaseDetails = {
