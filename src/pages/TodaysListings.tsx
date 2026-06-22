@@ -293,7 +293,7 @@ export default function TodaysListingsPage() {
     const caseNumber = record.case_number ?? record.case?.case_number ?? '';
 
     if (!cnr) {
-      const lookupRes = await fetch('/api/lookup-cnr', {
+      const lookupRes = await fetch('/api/ecourts/lookup-cnr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ case_number: caseNumber }),
