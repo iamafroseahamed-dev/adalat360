@@ -22,25 +22,20 @@ import type { TodayMatchedListing } from '@/types';
 type CaseDetails = {
   caseNumber: string;
   cnrNumber: string;
-  petitioner: string;
-  respondent: string;
-  courtHall: string;
-  judge: string;
-  stageStatus: string;
-  prayer: string;
-  hearingHistory: Array<{ date: string; purpose: string; stage: string; remarks: string }>;
-  orders: Array<{ orderDate: string; orderNumber: string; orderType: string }>;
-};
-
-type EcourtsCaseDetailsResponse = {
-  success: boolean;
-  cnr_number?: string;
-  case_number?: string;
-  summary_fields?: Record<string, string>;
-  tables?: Array<{ title?: string; headers?: string[]; rows?: string[][] }>;
-  text?: string;
-  detail?: string;
-  message?: string;
+  courtName: string;
+  caseStatus: string;
+  nextHearingDate: string | null;
+  petitioners: string[];
+  respondents: string[];
+  petitionerAdvocates: string[];
+  respondentAdvocates: string[];
+  hearingHistory: Array<{ date: string; purpose: string; businessDate: string; remarks: string }>;
+  orders: Array<{ orderDate: string; orderNumber: string; orderType: string; orderUrl: string }>;
+  filingDate: string | null;
+  registrationDate: string | null;
+  disposalDate: string | null;
+  disposalNature: string | null;
+  acts: string[];
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -108,9 +103,6 @@ export default function TodaysListingsPage() {
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<TodayMatchedListing | null>(null);
   const [caseDetails, setCaseDetails] = useState<CaseDetails | null>(null);
-  const [captchaImage, setCaptchaImage] = useState<string | null>(null);
-  const [captchaToken, setCaptchaToken] = useState('');
-  const [captchaText, setCaptchaText] = useState('');
 
   // ── Data loading ──────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -226,147 +218,29 @@ export default function TodaysListingsPage() {
     return <span className="ml-1">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>;
   }
 
-  function mapEcourtsToCaseDetails(
-    record: TodayMatchedListing,
-    data: EcourtsCaseDetailsResponse,
-  ): CaseDetails {
-    const summary = data.summary_fields ?? {};
-    const tables = data.tables ?? [];
-
-    const hearingTable = tables.find(t =>
-      (t.title ?? '').toLowerCase().includes('history of case hearing'),
-    );
-    const hearingHeaders = (hearingTable?.headers ?? []).map(h => h.toLowerCase());
-    const hearingRows = hearingTable?.rows ?? [];
-
-    const idx = (headers: string[], keys: string[], fallback: number) => {
-      for (const key of keys) {
-        const i = headers.findIndex(h => h.includes(key));
-        if (i >= 0) return i;
-      }
-      return fallback;
-    };
-
-    const dateIdx = idx(hearingHeaders, ['hearing date', 'date'], 3);
-    const purposeIdx = idx(hearingHeaders, ['purpose', 'business'], 4);
-    const stageIdx = idx(hearingHeaders, ['cause list type', 'stage'], 0);
-    const remarksIdx = idx(hearingHeaders, ['remarks', 'remark'], -1);
-
-    const hearingHistory = hearingRows.map((r) => ({
-      date: r[dateIdx] ?? '',
-      purpose: r[purposeIdx] ?? '',
-      stage: r[stageIdx] ?? '',
-      remarks: remarksIdx >= 0 ? (r[remarksIdx] ?? '') : '',
-    })).filter(h => h.date || h.purpose || h.stage || h.remarks);
-
-    const ordersTable = tables.find(t => (t.title ?? '').toLowerCase() === 'orders');
-    const orderHeaders = (ordersTable?.headers ?? []).map(h => h.toLowerCase());
-    const orderRows = ordersTable?.rows ?? [];
-    const orderDateIdx = idx(orderHeaders, ['order date', 'order on'], 3);
-    const orderNumberIdx = idx(orderHeaders, ['order no', 'order number'], 0);
-    const orderTypeIdx = idx(orderHeaders, ['order type', 'type'], -1);
-    const orders = orderRows.map((r) => ({
-      orderDate: r[orderDateIdx] ?? '',
-      orderNumber: r[orderNumberIdx] ?? '',
-      orderType: orderTypeIdx >= 0 ? (r[orderTypeIdx] ?? '') : '',
-    })).filter(o => o.orderDate || o.orderNumber || o.orderType);
-
-    const prayerFromSummary = summary['Prayer'] || summary['Prayer / Relief'] || '';
-    const prayerFromText = data.text?.match(/prayer\s*[:\-]?\s*(.+?)(?:\n\s*\n|history of case hearing|orders|$)/is)?.[1] ?? '';
-
-    return {
-      caseNumber: data.case_number || summary['Registration Number'] || summary['Case Number'] || record.case_number || record.case?.case_number || '',
-      cnrNumber: data.cnr_number || summary['CNR Number'] || record.case?.cnr_number || record.cnr_number || '',
-      petitioner: summary['Petitioner'] || record.petitioner || record.case?.petitioner || '',
-      respondent: summary['Respondent'] || record.respondent || record.case?.respondent || '',
-      courtHall: summary['Court Hall'] || summary['Court'] || record.court_hall || '',
-      judge: summary['Coram'] || summary['Judge'] || record.judge_name || '',
-      stageStatus: summary['Stage of Case'] || summary['Case Status'] || record.stage || '',
-      prayer: prayerFromSummary || prayerFromText || '',
-      hearingHistory,
-      orders,
-    };
-  }
-
-  async function loadCaseDetailsFallback(record: TodayMatchedListing): Promise<boolean> {
-    let cnr = record.case?.cnr_number ?? record.cnr_number ?? '';
-    const caseNumber = record.case_number ?? record.case?.case_number ?? '';
-
-    if (!cnr) {
-      const lookupRes = await fetch('/api/ecourts/lookup-cnr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ case_number: caseNumber }),
-      });
-      const lookupData = await lookupRes.json();
-      if (!lookupRes.ok || !lookupData?.success || !lookupData?.cnr_number) {
-        setDetailsError(lookupData?.message ?? 'Unable to retrieve case details');
-        return false;
-      }
-      cnr = String(lookupData.cnr_number);
-    }
-
-    const detailsRes = await fetch('/api/ecourts/case-details', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cnr_number: cnr, case_number: caseNumber }),
-    });
-    const detailsData = (await detailsRes.json()) as EcourtsCaseDetailsResponse;
-    if (!detailsRes.ok || !detailsData?.success) {
-      setDetailsError(detailsData?.detail ?? detailsData?.message ?? 'Unable to retrieve case details');
-      return false;
-    }
-
-    setCaseDetails(mapEcourtsToCaseDetails(record, detailsData));
-    setCaptchaImage(null);
-    setCaptchaToken('');
-    setCaptchaText('');
-    return true;
-  }
-
-  async function loadCaseDetails(record: TodayMatchedListing, captchaOverride?: string) {
+  async function loadCaseDetails(record: TodayMatchedListing) {
     setDetailsLoading(true);
     setDetailsError(null);
     try {
-      const res = await fetch('/api/case-details/discover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          listingId: record.id,
-          caseId: record.case_id,
-          caseNumber: record.case_number ?? record.case?.case_number ?? '',
-          captcha: captchaOverride ?? '',
-          captchaToken,
-        }),
+      const { data, error: fnErr } = await supabase.functions.invoke('case-details', {
+        body: {
+          case_id: record.case_id,
+          case_number: record.case_number ?? record.case?.case_number ?? '',
+          cnr_number: record.case?.cnr_number ?? record.cnr_number ?? '',
+        },
       });
-      const data = await res.json();
-      if (!data.success) {
-        if (data.requiresCaptcha) {
-          setCaptchaImage(data.captchaImage ?? null);
-          setCaptchaToken(data.captchaToken ?? '');
-          setCaseDetails(null);
-          setDetailsError(data.message ?? 'Captcha Required');
-          return;
-        }
 
-        const msg = String(data.message ?? '');
-        const shouldFallback =
-          res.status === 404
-          || msg.includes('Unable to load listing details')
-          || msg.includes('Listing not found');
-
-        if (shouldFallback) {
-          const ok = await loadCaseDetailsFallback(record);
-          if (ok) return;
-        }
-
-        setDetailsError(data.message ?? 'Unable to retrieve case details');
+      if (fnErr) {
+        setDetailsError(fnErr.message ?? 'Unable to retrieve case details');
         return;
       }
-      setCaseDetails((data.caseDetails ?? null) as CaseDetails | null);
-      setCaptchaImage(null);
-      setCaptchaToken('');
-      setCaptchaText('');
+
+      if (!data?.success) {
+        setDetailsError(data?.message ?? 'Unable to retrieve case details');
+        return;
+      }
+
+      setCaseDetails(data.caseDetails as CaseDetails);
       await fetchData();
     } catch {
       setDetailsError('Unable to retrieve case details');
@@ -378,9 +252,6 @@ export default function TodaysListingsPage() {
   function openCaseDetails(record: TodayMatchedListing) {
     setSelectedRecord(record);
     setCaseDetails(null);
-    setCaptchaImage(null);
-    setCaptchaToken('');
-    setCaptchaText('');
     setDetailsError(null);
     setIsDetailsOpen(true);
     void loadCaseDetails(record);
@@ -648,34 +519,15 @@ export default function TodaysListingsPage() {
             </div>
           )}
 
-          {!detailsLoading && captchaImage && (
-            <div className="space-y-3 rounded-md border p-4">
-              <p className="text-sm font-medium">Captcha Required</p>
-              <img src={captchaImage} alt="captcha" className="h-16 w-auto rounded border" />
-              <Input
-                value={captchaText}
-                onChange={(e) => setCaptchaText(e.target.value)}
-                placeholder="Enter captcha"
-                className="max-w-xs"
-              />
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  disabled={!captchaText.trim() || !selectedRecord}
-                  onClick={() => {
-                    if (!selectedRecord) return;
-                    void loadCaseDetails(selectedRecord, captchaText.trim());
-                  }}
-                >
-                  Search
+          {!detailsLoading && detailsError && (
+            <div className="space-y-2">
+              <p className="text-sm text-destructive">{detailsError}</p>
+              {selectedRecord && (
+                <Button size="sm" variant="outline" onClick={() => loadCaseDetails(selectedRecord)}>
+                  Retry
                 </Button>
-              </div>
-              {detailsError && <p className="text-sm text-destructive">{detailsError}</p>}
+              )}
             </div>
-          )}
-
-          {!detailsLoading && !captchaImage && detailsError && (
-            <p className="text-sm text-destructive">{detailsError}</p>
           )}
 
           {!detailsLoading && caseDetails && (
@@ -683,18 +535,31 @@ export default function TodaysListingsPage() {
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <p><span className="font-medium">Case Number:</span> {caseDetails.caseNumber || '\u2014'}</p>
                 <p><span className="font-medium">CNR Number:</span> {caseDetails.cnrNumber || '\u2014'}</p>
-                <p><span className="font-medium">Petitioner:</span> {caseDetails.petitioner || '\u2014'}</p>
-                <p><span className="font-medium">Respondent:</span> {caseDetails.respondent || '\u2014'}</p>
-                <p><span className="font-medium">Court Hall:</span> {caseDetails.courtHall || '\u2014'}</p>
-                <p><span className="font-medium">Judge:</span> {caseDetails.judge || '\u2014'}</p>
-                <p><span className="font-medium">Stage Status:</span> {caseDetails.stageStatus || '\u2014'}</p>
+                <p><span className="font-medium">Court Name:</span> {caseDetails.courtName || '\u2014'}</p>
+                <p><span className="font-medium">Case Status:</span> {caseDetails.caseStatus || '\u2014'}</p>
+                <p><span className="font-medium">Next Hearing Date:</span> {caseDetails.nextHearingDate ? fmtDate(caseDetails.nextHearingDate) : '\u2014'}</p>
+                <p><span className="font-medium">Filing Date:</span> {caseDetails.filingDate ? fmtDate(caseDetails.filingDate) : '\u2014'}</p>
               </div>
 
-              <div className="rounded-md border p-3">
-                <p className="mb-2 text-sm font-semibold">Prayer</p>
-                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                  {caseDetails.prayer || '\u2014'}
-                </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-md border p-3">
+                  <p className="mb-1 text-sm font-semibold">Petitioners</p>
+                  {caseDetails.petitioners.length === 0
+                    ? <p className="text-muted-foreground">{'\u2014'}</p>
+                    : <ul className="list-disc pl-4 text-sm text-muted-foreground">
+                        {caseDetails.petitioners.map((p, i) => <li key={i}>{p}</li>)}
+                      </ul>
+                  }
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="mb-1 text-sm font-semibold">Respondents</p>
+                  {caseDetails.respondents.length === 0
+                    ? <p className="text-muted-foreground">{'\u2014'}</p>
+                    : <ul className="list-disc pl-4 text-sm text-muted-foreground">
+                        {caseDetails.respondents.map((r, i) => <li key={i}>{r}</li>)}
+                      </ul>
+                  }
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -708,16 +573,14 @@ export default function TodaysListingsPage() {
                         <tr className="border-b bg-muted/40 text-left">
                           <th className="px-2 py-1">Date</th>
                           <th className="px-2 py-1">Purpose</th>
-                          <th className="px-2 py-1">Stage</th>
                           <th className="px-2 py-1">Remarks</th>
                         </tr>
                       </thead>
                       <tbody>
                         {caseDetails.hearingHistory.map((h, i) => (
                           <tr key={i} className="border-b last:border-0">
-                            <td className="px-2 py-1">{h.date || '\u2014'}</td>
+                            <td className="px-2 py-1 whitespace-nowrap">{h.date || '\u2014'}</td>
                             <td className="px-2 py-1">{h.purpose || '\u2014'}</td>
-                            <td className="px-2 py-1">{h.stage || '\u2014'}</td>
                             <td className="px-2 py-1">{h.remarks || '\u2014'}</td>
                           </tr>
                         ))}
@@ -744,7 +607,7 @@ export default function TodaysListingsPage() {
                       <tbody>
                         {caseDetails.orders.map((o, i) => (
                           <tr key={i} className="border-b last:border-0">
-                            <td className="px-2 py-1">{o.orderDate || '\u2014'}</td>
+                            <td className="px-2 py-1 whitespace-nowrap">{o.orderDate || '\u2014'}</td>
                             <td className="px-2 py-1">{o.orderNumber || '\u2014'}</td>
                             <td className="px-2 py-1">{o.orderType || '\u2014'}</td>
                           </tr>
