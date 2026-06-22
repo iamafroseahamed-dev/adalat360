@@ -190,14 +190,7 @@ function buildPdfUrl(record: {
 }
 
 function hasOrderFields(value: Record<string, unknown>): boolean {
-  return [
-    'case_no',
-    'cino',
-    'orderurlpath',
-    'reg_no',
-    'reg_year',
-    'type_name',
-  ].some((key) => clean(value[key]).length > 0);
+  return Boolean(clean(value.case_no) || clean(value.cino));
 }
 
 function parseConRecords(value: unknown): Array<Record<string, unknown>> {
@@ -479,34 +472,42 @@ function parseCaseHistoryHtml(html: string, fallbackOrder: EcourtsOrderRecord): 
   return parsedData;
 }
 
-function mapOrderRecord(record: Record<string, unknown>): EcourtsOrderRecord {
+function mapShowRecord(
+  record: Record<string, unknown>,
+  parsedCase: ReturnType<typeof parseCaseNumber>,
+): EcourtsOrderRecord {
   const orderUrlPath = clean(record.orderurlpath);
-  const typeName = clean(record.type_name);
-  const registrationNumber = clean(record.reg_no);
-  const registrationYear = clean(record.reg_year);
+  const typeName = clean(record.type_name) || parsedCase.caseType;
+  const registrationNumber = clean(record.reg_no) || parsedCase.caseNumberOrder;
+  const registrationYear = clean(record.reg_year) || parsedCase.caseYearOrder;
   const cino = clean(record.cino);
+  const caseNo = clean(record.case_no);
 
-  if (!orderUrlPath || !typeName || !registrationNumber || !registrationYear || !cino) {
-    console.error('ORDER DATA MISSING REQUIRED FIELDS');
+  if (!caseNo || !cino) {
+    console.error('SHOW RECORD DATA MISSING REQUIRED FIELDS');
     console.error(record);
-    throw new EcourtsError('UNKNOWN', 'showRecords returned an unexpected order shape');
+    throw new EcourtsError('UNKNOWN', 'showRecords returned an unexpected case lookup shape');
   }
 
-  const pdfUrl = buildPdfUrl({
-    orderurlpath: orderUrlPath,
-    type_name: typeName,
-    reg_no: registrationNumber,
-    reg_year: registrationYear,
-    cino,
-  });
+  const pdfUrl = orderUrlPath
+    ? buildPdfUrl({
+        orderurlpath: orderUrlPath,
+        type_name: typeName,
+        reg_no: registrationNumber,
+        reg_year: registrationYear,
+        cino,
+      })
+    : '';
 
-  console.log('ORDER DATA');
+  console.log('SHOW RECORD DATA');
   console.log(record);
-  console.log('PDF URL');
-  console.log(pdfUrl);
+  if (pdfUrl) {
+    console.log('PDF URL');
+    console.log(pdfUrl);
+  }
 
   return {
-    caseNo: clean(record.case_no),
+    caseNo,
     cino,
     orderUrlPath,
     registrationNumber,
@@ -687,9 +688,9 @@ export async function submitShowRecordsCaptcha(args: { caseNumber: string; captc
     if (records.length > 0) {
       console.log('PARSED RESULTS');
       console.log(records[0]);
-      const orderRecords = records.map(mapOrderRecord);
-      const caseHistoryHtml = await fetchCaseHistoryHtml(orderRecords[0]);
-      const parsedCaseHistory = parseCaseHistoryHtml(caseHistoryHtml, orderRecords[0]);
+      const showRecords = records.map((record) => mapShowRecord(record, parsedCase));
+      const caseHistoryHtml = await fetchCaseHistoryHtml(showRecords[0]);
+      const parsedCaseHistory = parseCaseHistoryHtml(caseHistoryHtml, showRecords[0]);
       return { parsedCaseHistory };
     }
 
