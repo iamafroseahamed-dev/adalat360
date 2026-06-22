@@ -337,8 +337,9 @@ export default function TodaysListingsPage() {
         }
       }
 
-      // Enforce Madras High Court scope: CNR must belong to HCMA01.
-      if (!resolvedCnr.trim().toUpperCase().startsWith('HCMA01')) {
+      // Enforce Madras High Court scope: CNR must be in the HCMA court complex
+      // (HCMA01 = Principal Seat, HCMA02 = Madurai Bench, etc.).
+      if (!resolvedCnr.trim().toUpperCase().startsWith('HCMA')) {
         setDetailsError('Only Madras High Court cases are supported.');
         return;
       }

@@ -13,6 +13,9 @@ const JSON_HEADERS = { ...corsHeaders, "Content-Type": "application/json" };
 // This application is exclusively for Madras High Court litigation monitoring.
 const COURT_TYPE = "HIGH_COURT";
 const HIGH_COURT_CODE = "HCMA01";
+// Court-complex code shared by every Madras High Court establishment
+// (HCMA01 = Principal Seat at Chennai, HCMA02 = Madurai Bench, etc.).
+const HIGH_COURT_COMPLEX = "HCMA";
 const STATE_CODE = "TN";
 
 // Madras High Court case-type → eCourts case category.
@@ -51,7 +54,7 @@ function normalizeStage(stage: string | null | undefined): string {
 }
 
 function isMadrasHighCourtCnr(cnr: string): boolean {
-  return cnr.trim().toUpperCase().startsWith(HIGH_COURT_CODE);
+  return cnr.trim().toUpperCase().startsWith(HIGH_COURT_COMPLEX);
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -363,13 +366,13 @@ Deno.serve(async (req) => {
       .eq("id", caseRow.id);
   }
 
-  // Step 6b — Enforce Madras High Court scope (CNR must start with HCMA01)
+  // Step 6b — Enforce Madras High Court scope (CNR must be in the HCMA court complex)
   if (!isMadrasHighCourtCnr(cnr)) {
     console.warn("[case-details] Rejected non-Madras-HC CNR:", cnr);
     return jsonResponse({
       success: false,
       error: "Only Madras High Court cases are supported.",
-      detail: `CNR ${cnr} is not a ${HIGH_COURT_CODE} (${COURT_TYPE}/${STATE_CODE}) case.`,
+      detail: `CNR ${cnr} is not in the ${HIGH_COURT_COMPLEX} (${COURT_TYPE}/${STATE_CODE}) court complex.`,
       received,
     });
   }
