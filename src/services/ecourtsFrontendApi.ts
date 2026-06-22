@@ -1,30 +1,12 @@
-export const CASE_TYPE_IDS: Record<string, number> = {
-  WP: 49,
-  WMP: 133,
-  WA: 48,
-  WAMP: 132,
-  WPMP: 134,
-  CRP: 15,
-  CMP: 113,
-  CMA: 2,
-  HCP: 22,
-  'CONT P': 9,
-  OP: 119,
-  OSA: 120,
-};
+// Frontend eCourts service.
+//
+// All requests go through the app's own API service layer at `/api/ecourts/*`
+// (proxied to the FastAPI backend in dev, Vercel Python functions in prod).
+// The backend performs the eCourts captcha + search + history flow server-side
+// and returns the captcha image as a base64 data URI plus a stateless token,
+// so the browser never has to share PHP session cookies cross-origin.
 
-const ECOURTS_PROXY_BASE = '/hcservices-proxy';
-
-export type EcourtsSession = {
-  sessionId: string;
-  jsession: string;
-};
-
-export type EcourtsSearchResult = {
-  ecourtsCaseNo: string;
-  cnrNumber: string;
-  raw: unknown;
-};
+const API_BASE = '/api';
 
 export type EcourtsCaseDetails = {
   overview: {
@@ -40,10 +22,19 @@ export type EcourtsCaseDetails = {
   };
   hearings: Array<{ date: string; purpose: string; stage: string; remarks: string }>;
   orders: Array<{ orderDate: string; orderNumber: string; downloadUrl: string }>;
-  rawResponse: {
-    text: string;
-    summaryFields: Record<string, string>;
-  };
+  rawResponse: unknown;
+};
+
+export type CaptchaChallenge = {
+  kind: 'captcha';
+  captchaImage: string;
+  captchaToken: string;
+  message: string;
+};
+
+export type CaseDetailsResult = {
+  kind: 'details';
+  details: EcourtsCaseDetails;
 };
 
 export class EcourtsError extends Error {
@@ -55,337 +46,191 @@ export class EcourtsError extends Error {
   }
 }
 
+type BackendTable = {
+  title?: string;
+  headers?: string[];
+  rows?: string[][];
+  columnCount?: number;
+};
+
+type BackendResponse = {
+  success?: boolean;
+  requiresCaptcha?: boolean;
+  message?: string;
+  detail?: string;
+  error?: string;
+  captchaImage?: string;
+  captchaToken?: string;
+  cnr_number?: string;
+  case_number?: string;
+  tables?: BackendTable[];
+  summary_fields?: Record<string, string>;
+};
+
 function clean(value: unknown): string {
   return String(value ?? '').trim().replace(/\s+/g, ' ');
 }
 
-function parseCaseNumber(caseNumber: string): { caseType: string; caseNo: string; caseYear: string } {
-  const [rawType, rawNo, rawYear] = caseNumber.replace(/\s+/g, '').toUpperCase().split('/');
-  const caseType = (rawType ?? '').replace(/\./g, ' ').replace(/_/g, ' ').trim();
-  const caseNo = (rawNo ?? '').replace(/\D/g, '');
-  const caseYear = (rawYear ?? '').replace(/\D/g, '');
-
-  if (!caseType || !caseNo || !caseYear) {
-    throw new EcourtsError('UNKNOWN', 'Invalid case number format. Use TYPE/NUMBER/YEAR.');
+function pickField(summary: Record<string, string>, keys: string[]): string {
+  for (const key of keys) {
+    const lookup = Object.keys(summary).find((k) => k.toLowerCase() === key.toLowerCase());
+    if (lookup && clean(summary[lookup])) return clean(summary[lookup]);
   }
-
-  return { caseType, caseNo, caseYear };
+  return '';
 }
 
-function resolveCaseTypeId(caseType: string): number {
-  const normalized = caseType.toUpperCase().replace(/\s+/g, ' ');
-  const direct = CASE_TYPE_IDS[normalized];
-  if (direct) return direct;
-
-  const compact = normalized.replace(/\s+/g, '');
-  const fromCompact = CASE_TYPE_IDS[compact];
-  if (fromCompact) return fromCompact;
-
-  if (compact === 'CONTP') return CASE_TYPE_IDS['CONT P'];
-
-  throw new EcourtsError('UNKNOWN', `Unsupported case type: ${caseType}`);
+function headerIndex(headers: string[] | undefined, keywords: string[]): number {
+  const list = headers ?? [];
+  for (let i = 0; i < list.length; i += 1) {
+    const h = String(list[i] ?? '').toLowerCase();
+    if (keywords.some((kw) => h.includes(kw))) return i;
+  }
+  return -1;
 }
 
-function parseCookiesFromDocument(): EcourtsSession {
-  const map = new Map<string, string>();
-  for (const part of document.cookie.split(';')) {
-    const [k, ...rest] = part.split('=');
-    if (!k) continue;
-    map.set(k.trim(), rest.join('=').trim());
-  }
-
-  return {
-    sessionId: map.get('HCSERVICES_SESSID') ?? '',
-    jsession: map.get('JSESSION') ?? map.get('JSESSIONID') ?? '',
-  };
+function cellAt(row: string[], idx: number): string {
+  return idx >= 0 ? clean(row[idx]) : '';
 }
 
-function normalizeRelativeUrl(href: string): string {
-  if (!href) return '';
-  if (/^https?:\/\//i.test(href)) return href;
-  if (href.startsWith('/')) return `${ECOURTS_PROXY_BASE}${href}`;
-  return `${ECOURTS_PROXY_BASE}/${href}`;
+function findTable(tables: BackendTable[], keyword: string): BackendTable | undefined {
+  return tables.find((t) => String(t.title ?? '').toLowerCase().includes(keyword));
 }
 
-export async function createEcourtsSession(): Promise<EcourtsSession> {
-  // Step 1: touch root to initialize upstream session cookies.
-  const rootResp = await fetch(`${ECOURTS_PROXY_BASE}/`, {
-    method: 'GET',
-    credentials: 'include',
-  });
-  if (!rootResp.ok) {
-    throw new EcourtsError('SESSION_EXPIRED', 'Session Expired');
-  }
+function mapBackendToDetails(resp: BackendResponse, fallbackCaseNumber: string): EcourtsCaseDetails {
+  const summary = resp.summary_fields ?? {};
+  const tables = resp.tables ?? [];
 
-  // Step 2: load main page; captcha endpoint depends on this flow.
-  const mainResp = await fetch(`${ECOURTS_PROXY_BASE}/hcservices/main.php?v=1`, {
-    method: 'GET',
-    credentials: 'include',
-    headers: {
-      Referer: `${ECOURTS_PROXY_BASE}/`,
-    },
-  });
-  if (!mainResp.ok) {
-    throw new EcourtsError('SESSION_EXPIRED', 'Session Expired');
-  }
-
-  return parseCookiesFromDocument();
-}
-
-export async function loadEcourtsCaptcha(): Promise<string> {
-  const random = Math.floor(Math.random() * 1000);
-  const resp = await fetch(
-    `${ECOURTS_PROXY_BASE}/hcservices/securimage/securimage_show.php?${random}`,
-    {
-      method: 'GET',
-      credentials: 'include',
-      headers: {
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-    },
-  );
-
-  if (!resp.ok) {
-    throw new EcourtsError('SESSION_EXPIRED', 'Session Expired');
-  }
-
-  const contentType = (resp.headers.get('content-type') ?? '').toLowerCase();
-  if (!contentType.includes('image')) {
-    const text = await resp.text();
-    const lower = text.toLowerCase();
-    if (lower.includes('session') || lower.includes('expire') || lower.includes('captcha')) {
-      throw new EcourtsError('SESSION_EXPIRED', 'Session Expired');
-    }
-    throw new EcourtsError('UNKNOWN', 'Unable to load captcha image');
-  }
-
-  const blob = await resp.blob();
-  if (!blob.size) {
-    throw new EcourtsError('UNKNOWN', 'Unable to load captcha image');
-  }
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new EcourtsError('UNKNOWN', 'Unable to load captcha image'));
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.readAsDataURL(blob);
-  });
-
-  return dataUrl;
-}
-
-export async function searchEcourtsCase(args: {
-  caseNumber: string;
-  captcha: string;
-}): Promise<EcourtsSearchResult> {
-  const { caseType, caseNo, caseYear } = parseCaseNumber(args.caseNumber);
-  const caseTypeId = resolveCaseTypeId(caseType);
-
-  const body = new URLSearchParams({
-    court_code: '1',
-    state_code: '10',
-    court_complex_code: '1',
-    caseStatusSearchType: 'COcaseNumber',
-    captcha: args.captcha,
-    case_type_order: String(caseTypeId),
-    case_no_order: caseNo,
-    rgyearCaseOrder: caseYear,
-  });
-
-  const resp = await fetch(
-    `${ECOURTS_PROXY_BASE}/hcservices/cases_qry/index_qry.php?action_code=showRecords`,
-    {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'X-Requested-With': 'XMLHttpRequest',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body,
-    },
-  );
-
-  const text = await resp.text();
-  const lower = text.toLowerCase();
-
-  if (!resp.ok) {
-    throw new EcourtsError('UNKNOWN', 'Unable to search case details.');
-  }
-
-  if (
-    lower.includes('captcha') &&
-    (lower.includes('invalid') || lower.includes('incorrect') || lower.includes('wrong'))
-  ) {
-    throw new EcourtsError('INVALID_CAPTCHA', 'Invalid Captcha');
-  }
-
-  let parsed: any;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    parsed = null;
-  }
-
-  const rows = Array.isArray(parsed)
-    ? parsed
-    : Array.isArray(parsed?.con)
-    ? parsed.con
-    : Array.isArray(parsed?.results)
-    ? parsed.results
-    : [];
-
-  const first = rows[0] ?? null;
-  const ecourtsCaseNo = clean(first?.case_no);
-  const cnrNumber = clean(first?.cino ?? first?.cnr_number).toUpperCase();
-
-  if (!ecourtsCaseNo || !cnrNumber) {
-    throw new EcourtsError('CASE_NOT_FOUND', 'Case Not Found');
-  }
-
-  return {
-    ecourtsCaseNo,
-    cnrNumber,
-    raw: parsed ?? text,
-  };
-}
-
-function getSummaryFields(doc: Document): Record<string, string> {
-  const out: Record<string, string> = {};
-
-  doc.querySelectorAll('table tr').forEach((tr) => {
-    const cells = Array.from(tr.querySelectorAll('th,td')).map((c) => clean(c.textContent));
-    if (cells.length >= 2 && cells.length % 2 === 0) {
-      for (let i = 0; i < cells.length; i += 2) {
-        const key = cells[i];
-        const value = cells[i + 1];
-        if (key && value && key !== value) out[key] = value;
-      }
-    }
-  });
-
-  return out;
-}
-
-function parseHearings(doc: Document): Array<{ date: string; purpose: string; stage: string; remarks: string }> {
-  const headings = Array.from(doc.querySelectorAll('h1,h2,h3,h4,strong,b,p')).map((el) => clean(el.textContent));
-  const tables = Array.from(doc.querySelectorAll('table'));
-
-  let hearingTable: HTMLTableElement | null = null;
-  for (let i = 0; i < tables.length; i += 1) {
-    const title = headings[i] ?? '';
-    if (title.toLowerCase().includes('history of case hearing')) {
-      hearingTable = tables[i] as HTMLTableElement;
-      break;
+  const hearings: EcourtsCaseDetails['hearings'] = [];
+  const hearingTable = findTable(tables, 'history of case hearing') ?? findTable(tables, 'hearing');
+  if (hearingTable?.rows?.length) {
+    const dateIdx = headerIndex(hearingTable.headers, ['hearing date', 'next date', 'date']);
+    const purposeIdx = headerIndex(hearingTable.headers, ['purpose']);
+    const stageIdx = headerIndex(hearingTable.headers, ['cause list type', 'stage']);
+    const remarksIdx = headerIndex(hearingTable.headers, ['judge', 'business on date', 'remarks']);
+    for (const row of hearingTable.rows) {
+      const entry = {
+        date: cellAt(row, dateIdx) || clean(row[row.length - 1]),
+        purpose: cellAt(row, purposeIdx),
+        stage: cellAt(row, stageIdx) || clean(row[0]),
+        remarks: cellAt(row, remarksIdx),
+      };
+      if (entry.date || entry.purpose || entry.stage || entry.remarks) hearings.push(entry);
     }
   }
 
-  if (!hearingTable) return [];
-
-  const rows = Array.from(hearingTable.querySelectorAll('tr'));
-  const out: Array<{ date: string; purpose: string; stage: string; remarks: string }> = [];
-
-  for (const row of rows) {
-    const cols = Array.from(row.querySelectorAll('td')).map((c) => clean(c.textContent));
-    if (cols.length < 2) continue;
-
-    out.push({
-      date: cols[3] ?? cols[0] ?? '',
-      purpose: cols[4] ?? cols[1] ?? '',
-      stage: cols[0] ?? cols[2] ?? '',
-      remarks: cols[5] ?? cols[3] ?? '',
-    });
+  const orders: EcourtsCaseDetails['orders'] = [];
+  const orderTable = findTable(tables, 'order');
+  if (orderTable?.rows?.length) {
+    const dateIdx = headerIndex(orderTable.headers, ['order date', 'date']);
+    const numberIdx = headerIndex(orderTable.headers, ['order no', 'order number', 'sl']);
+    const linkIdx = headerIndex(orderTable.headers, ['pdf link', 'pdf', 'link', 'url']);
+    for (const row of orderTable.rows) {
+      const downloadUrl = cellAt(row, linkIdx);
+      const entry = {
+        orderDate: cellAt(row, dateIdx),
+        orderNumber: cellAt(row, numberIdx) || clean(row[0]),
+        downloadUrl,
+      };
+      if (entry.orderDate || entry.orderNumber || entry.downloadUrl) orders.push(entry);
+    }
   }
-
-  return out.filter((h) => h.date || h.purpose || h.stage || h.remarks);
-}
-
-function parseOrders(doc: Document): Array<{ orderDate: string; orderNumber: string; downloadUrl: string }> {
-  const out: Array<{ orderDate: string; orderNumber: string; downloadUrl: string }> = [];
-
-  const orderAnchors = Array.from(doc.querySelectorAll('a[href]')).filter((a) => {
-    const t = clean(a.textContent).toLowerCase();
-    const h = String(a.getAttribute('href') ?? '').toLowerCase();
-    return t.includes('order') || t.includes('judgment') || h.includes('.pdf');
-  });
-
-  for (const a of orderAnchors) {
-    const tr = a.closest('tr');
-    const cols = tr ? Array.from(tr.querySelectorAll('td')).map((c) => clean(c.textContent)) : [];
-    out.push({
-      orderDate: cols[0] ?? '',
-      orderNumber: cols[1] ?? clean(a.textContent),
-      downloadUrl: normalizeRelativeUrl(String(a.getAttribute('href') ?? '')),
-    });
-  }
-
-  return out;
-}
-
-export async function fetchEcourtsCaseHistory(args: {
-  caseNumber: string;
-  ecourtsCaseNo: string;
-  cnrNumber: string;
-}): Promise<EcourtsCaseDetails> {
-  const body = new URLSearchParams({
-    court_code: '1',
-    state_code: '10',
-    court_complex_code: '1',
-    case_no: args.ecourtsCaseNo,
-    cino: args.cnrNumber,
-    appFlag: '',
-  });
-
-  const resp = await fetch(`${ECOURTS_PROXY_BASE}/hcservices/cases_qry/o_civil_case_history.php`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'X-Requested-With': 'XMLHttpRequest',
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-  });
-
-  const text = await resp.text();
-  const lower = text.toLowerCase();
-
-  if (!resp.ok) {
-    throw new EcourtsError('UNABLE_TO_FETCH_HISTORY', 'Unable To Fetch History');
-  }
-
-  if (lower.includes('session') && lower.includes('expire')) {
-    throw new EcourtsError('SESSION_EXPIRED', 'Session Expired');
-  }
-
-  if (
-    lower.includes('case not found') ||
-    lower.includes('no records found') ||
-    lower.includes('invalid cnr')
-  ) {
-    throw new EcourtsError('CASE_NOT_FOUND', 'Case Not Found');
-  }
-
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(text, 'text/html');
-  const summaryFields = getSummaryFields(doc);
 
   const overview = {
-    caseNumber: clean(summaryFields['Case Number'] ?? summaryFields['Registration Number'] ?? args.caseNumber),
-    cnrNumber: clean(summaryFields['CNR Number'] ?? args.cnrNumber),
-    petitioner: clean(summaryFields['Petitioner']),
-    respondent: clean(summaryFields['Respondent']),
-    judge: clean(summaryFields['Coram'] ?? summaryFields['Judge']),
-    courtHall: clean(summaryFields['Court Hall'] ?? summaryFields['Court'] ?? summaryFields['Court No']),
-    stage: clean(summaryFields['Stage of Case']),
-    caseStatus: clean(summaryFields['Case Status']),
-    nextHearingDate: clean(summaryFields['Next Date'] ?? summaryFields['Next Hearing Date']),
+    caseNumber:
+      pickField(summary, ['Case Number', 'Registration Number', 'Filing Number']) ||
+      clean(resp.case_number) ||
+      clean(fallbackCaseNumber),
+    cnrNumber: pickField(summary, ['CNR Number']) || clean(resp.cnr_number),
+    petitioner: pickField(summary, ['Petitioner', 'Petitioner and Advocate', 'Petitioner Name']),
+    respondent: pickField(summary, ['Respondent', 'Respondent and Advocate', 'Respondent Name']),
+    judge: pickField(summary, ['Coram', 'Judge', 'Judge/Coram', 'Hon\'ble Judge']),
+    courtHall: pickField(summary, ['Court Hall', 'Court', 'Court Number', 'Court No', 'Bench']),
+    stage: pickField(summary, ['Stage of Case', 'Stage', 'Case Stage']),
+    caseStatus: pickField(summary, ['Case Status', 'Status', 'Disposal Nature']),
+    nextHearingDate: pickField(summary, ['Next Hearing Date', 'Next Date', 'Next Date / Purpose']),
   };
 
-  return {
-    overview,
-    hearings: parseHearings(doc),
-    orders: parseOrders(doc),
-    rawResponse: {
-      text,
-      summaryFields,
-    },
-  };
+  return { overview, hearings, orders, rawResponse: resp };
+}
+
+async function postCaseDetails(payload: {
+  case_number?: string;
+  cnr_number?: string;
+  captcha?: string;
+  captcha_token?: string;
+}): Promise<BackendResponse> {
+  let resp: Response;
+  try {
+    resp = await fetch(`${API_BASE}/ecourts/case-details`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new EcourtsError('UNKNOWN', 'Unable to reach the case details service.');
+  }
+
+  let data: BackendResponse;
+  try {
+    data = (await resp.json()) as BackendResponse;
+  } catch {
+    if (!resp.ok) {
+      throw new EcourtsError('UNKNOWN', 'Unable to fetch case details.');
+    }
+    throw new EcourtsError('UNKNOWN', 'Unexpected response from the case details service.');
+  }
+
+  if (!resp.ok) {
+    throw new EcourtsError('UNKNOWN', clean(data?.detail || data?.message) || 'Unable to fetch case details.');
+  }
+
+  return data;
+}
+
+function interpret(resp: BackendResponse, caseNumber: string): CaptchaChallenge | CaseDetailsResult {
+  if (resp.requiresCaptcha && resp.captchaImage && resp.captchaToken) {
+    return {
+      kind: 'captcha',
+      captchaImage: resp.captchaImage,
+      captchaToken: resp.captchaToken,
+      message: clean(resp.message) || 'Captcha required.',
+    };
+  }
+
+  if (resp.success) {
+    return { kind: 'details', details: mapBackendToDetails(resp, caseNumber) };
+  }
+
+  const message = clean(resp.message) || 'Case Not Found';
+  if (resp.error === 'CASE_TYPE_MAPPING_NOT_FOUND') {
+    throw new EcourtsError('UNKNOWN', message);
+  }
+  throw new EcourtsError('CASE_NOT_FOUND', message);
+}
+
+/**
+ * Begin a case-details lookup. For a case number this returns a captcha
+ * challenge (image + token) that must be solved via {@link submitCaseCaptcha}.
+ */
+export async function startCaseDetails(caseNumber: string): Promise<CaptchaChallenge | CaseDetailsResult> {
+  const resp = await postCaseDetails({ case_number: caseNumber });
+  return interpret(resp, caseNumber);
+}
+
+/**
+ * Submit a solved captcha. On success returns the parsed case details. If the
+ * captcha was wrong the backend issues a fresh challenge, returned here as a
+ * `captcha` result so the UI can refresh the image and prompt again.
+ */
+export async function submitCaseCaptcha(args: {
+  caseNumber: string;
+  captcha: string;
+  captchaToken: string;
+}): Promise<CaptchaChallenge | CaseDetailsResult> {
+  const resp = await postCaseDetails({
+    case_number: args.caseNumber,
+    captcha: args.captcha,
+    captcha_token: args.captchaToken,
+  });
+  return interpret(resp, args.caseNumber);
 }
