@@ -224,13 +224,9 @@ export default function TodaysListingsPage() {
     try {
       const cnr = record.case?.cnr_number ?? record.cnr_number ?? '';
       const caseNumber = record.case_number ?? record.case?.case_number ?? '';
-      const apiBase = import.meta.env.VITE_ECOURTS_API_BASE_URL as string;
-      const apiKey = import.meta.env.VITE_ECOURTS_API_KEY as string;
 
-      if (!apiBase || !apiKey) {
-        setDetailsError('Missing VITE_ECOURTS_API_BASE_URL or VITE_ECOURTS_API_KEY in .env');
-        return;
-      }
+      // Calls go through Vite proxy at /ecourts-proxy → eCourtsIndia API
+      // The proxy injects the Authorization header (API key never reaches the browser)
 
       // If CNR exists, fetch case details directly
       let resolvedCnr = cnr;
@@ -247,12 +243,9 @@ export default function TodaysListingsPage() {
           return;
         }
 
-        const searchRes = await fetch(`${apiBase}/api/partner/search`, {
+        const searchRes = await fetch('/ecourts-proxy/api/partner/search', {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             case_type: parsed[0],
             case_number: parsed[1].replace(/\D/g, ''),
@@ -287,14 +280,11 @@ export default function TodaysListingsPage() {
       }
 
       // Fetch case details by CNR
-      const detailUrl = `${apiBase}/api/partner/case/${encodeURIComponent(resolvedCnr)}`;
+      const detailUrl = `/ecourts-proxy/api/partner/case/${encodeURIComponent(resolvedCnr)}`;
       console.log('[case-details] Fetching:', detailUrl);
 
       const res = await fetch(detailUrl, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Accept': 'application/json',
-        },
+        headers: { 'Accept': 'application/json' },
       });
       const data = await res.json();
       console.log('[case-details] Response:', res.status, data);
