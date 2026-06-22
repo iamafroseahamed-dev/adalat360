@@ -220,6 +220,8 @@ export interface TodayMatchedListing {
   cnr_status: string | null;      // 'discovered' | 'not_discovered' | 'failed'
   ecourts_error: string | null;
   ecourts_synced_at: string | null;  // actual column name in DB
+  case_details_json?: Record<string, unknown> | null;
+  case_details_last_fetched?: string | null;
   created_at: string;
   updated_at: string;
   // Joined via Supabase select('*, case:cases(*)')

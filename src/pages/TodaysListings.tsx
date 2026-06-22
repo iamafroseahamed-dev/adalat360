@@ -5,16 +5,32 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  ChevronLeft, ChevronRight, RefreshCw, X,
+  ChevronLeft, ChevronRight, Eye, FileText, Loader2, RefreshCw, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { TodayMatchedListing } from '@/types';
+
+type CaseDetails = {
+  caseNumber: string;
+  cnrNumber: string;
+  petitioner: string;
+  respondent: string;
+  courtHall: string;
+  judge: string;
+  stageStatus: string;
+  prayer: string;
+  hearingHistory: Array<{ date: string; purpose: string; stage: string; remarks: string }>;
+  orders: Array<{ orderDate: string; orderNumber: string; orderType: string }>;
+};
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +92,14 @@ export default function TodaysListingsPage() {
   const [sortField, setSortField] = useState<SortField>('court_hall');
   const [sortDir,   setSortDir  ] = useState<SortDir>('asc');
   const [page, setPage]           = useState(1);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<TodayMatchedListing | null>(null);
+  const [caseDetails, setCaseDetails] = useState<CaseDetails | null>(null);
+  const [captchaImage, setCaptchaImage] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [captchaText, setCaptchaText] = useState('');
 
   // ── Data loading ──────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -189,6 +213,56 @@ export default function TodaysListingsPage() {
   function SortIcon({ field }: { field: SortField }) {
     if (sortField !== field) return <span className="ml-1 text-muted-foreground/40">&#8597;</span>;
     return <span className="ml-1">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>;
+  }
+
+  async function loadCaseDetails(record: TodayMatchedListing, captchaOverride?: string) {
+    setDetailsLoading(true);
+    setDetailsError(null);
+    try {
+      const res = await fetch('/api/case-details/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listingId: record.id,
+          caseId: record.case_id,
+          caseNumber: record.case_number ?? record.case?.case_number ?? '',
+          captcha: captchaOverride ?? '',
+          captchaToken,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        if (data.requiresCaptcha) {
+          setCaptchaImage(data.captchaImage ?? null);
+          setCaptchaToken(data.captchaToken ?? '');
+          setCaseDetails(null);
+          setDetailsError(data.message ?? 'Captcha Required');
+          return;
+        }
+        setDetailsError(data.message ?? 'Unable to retrieve case details');
+        return;
+      }
+      setCaseDetails((data.caseDetails ?? null) as CaseDetails | null);
+      setCaptchaImage(null);
+      setCaptchaToken('');
+      setCaptchaText('');
+      await fetchData();
+    } catch {
+      setDetailsError('Unable to retrieve case details');
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
+
+  function openCaseDetails(record: TodayMatchedListing) {
+    setSelectedRecord(record);
+    setCaseDetails(null);
+    setCaptchaImage(null);
+    setCaptchaToken('');
+    setCaptchaText('');
+    setDetailsError(null);
+    setIsDetailsOpen(true);
+    void loadCaseDetails(record);
   }
 
   return (
@@ -325,7 +399,8 @@ export default function TodaysListingsPage() {
                   <TableHead className="whitespace-nowrap">Petitioner</TableHead>
                   <TableHead className="whitespace-nowrap">Respondent</TableHead>
                   <TableHead className="whitespace-nowrap">Judge</TableHead>
-                  <TableHead className="whitespace-nowrap">Case Status</TableHead>                  
+                  <TableHead className="whitespace-nowrap">Stage Status</TableHead>
+                  <TableHead className="whitespace-nowrap">Case Details</TableHead>
                   <TableHead className="whitespace-nowrap">Notification</TableHead>
                 </TableRow>
               </TableHeader>
@@ -389,7 +464,18 @@ export default function TodaysListingsPage() {
                         <TableCell className="whitespace-nowrap">{record.judge_name ?? '\u2014'}</TableCell>
                         <TableCell className="whitespace-nowrap text-xs">
                           {record.stage  ?? '\u2014'}
-                        </TableCell>                       
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs"
+                            onClick={() => openCaseDetails(record)}
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            View Case Details
+                          </Button>
+                        </TableCell>
                         <TableCell className="whitespace-nowrap">
                           <NotifBadge status={record.notification_status} />
                         </TableCell>
@@ -424,6 +510,133 @@ export default function TodaysListingsPage() {
           )}
         </>
       )}
+
+      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+        <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              Case Details
+            </DialogTitle>
+          </DialogHeader>
+
+          {detailsLoading && (
+            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading case details...
+            </div>
+          )}
+
+          {!detailsLoading && captchaImage && (
+            <div className="space-y-3 rounded-md border p-4">
+              <p className="text-sm font-medium">Captcha Required</p>
+              <img src={captchaImage} alt="captcha" className="h-16 w-auto rounded border" />
+              <Input
+                value={captchaText}
+                onChange={(e) => setCaptchaText(e.target.value)}
+                placeholder="Enter captcha"
+                className="max-w-xs"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  disabled={!captchaText.trim() || !selectedRecord}
+                  onClick={() => {
+                    if (!selectedRecord) return;
+                    void loadCaseDetails(selectedRecord, captchaText.trim());
+                  }}
+                >
+                  Search
+                </Button>
+              </div>
+              {detailsError && <p className="text-sm text-destructive">{detailsError}</p>}
+            </div>
+          )}
+
+          {!detailsLoading && !captchaImage && detailsError && (
+            <p className="text-sm text-destructive">{detailsError}</p>
+          )}
+
+          {!detailsLoading && caseDetails && (
+            <div className="space-y-4 text-sm">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <p><span className="font-medium">Case Number:</span> {caseDetails.caseNumber || '\u2014'}</p>
+                <p><span className="font-medium">CNR Number:</span> {caseDetails.cnrNumber || '\u2014'}</p>
+                <p><span className="font-medium">Petitioner:</span> {caseDetails.petitioner || '\u2014'}</p>
+                <p><span className="font-medium">Respondent:</span> {caseDetails.respondent || '\u2014'}</p>
+                <p><span className="font-medium">Court Hall:</span> {caseDetails.courtHall || '\u2014'}</p>
+                <p><span className="font-medium">Judge:</span> {caseDetails.judge || '\u2014'}</p>
+                <p><span className="font-medium">Stage Status:</span> {caseDetails.stageStatus || '\u2014'}</p>
+              </div>
+
+              <div className="rounded-md border p-3">
+                <p className="mb-2 text-sm font-semibold">Prayer</p>
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                  {caseDetails.prayer || '\u2014'}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">Hearing History</p>
+                {caseDetails.hearingHistory.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No hearing history available.</p>
+                ) : (
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b bg-muted/40 text-left">
+                          <th className="px-2 py-1">Date</th>
+                          <th className="px-2 py-1">Purpose</th>
+                          <th className="px-2 py-1">Stage</th>
+                          <th className="px-2 py-1">Remarks</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {caseDetails.hearingHistory.map((h, i) => (
+                          <tr key={i} className="border-b last:border-0">
+                            <td className="px-2 py-1">{h.date || '\u2014'}</td>
+                            <td className="px-2 py-1">{h.purpose || '\u2014'}</td>
+                            <td className="px-2 py-1">{h.stage || '\u2014'}</td>
+                            <td className="px-2 py-1">{h.remarks || '\u2014'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">Orders</p>
+                {caseDetails.orders.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No orders available.</p>
+                ) : (
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b bg-muted/40 text-left">
+                          <th className="px-2 py-1">Order Date</th>
+                          <th className="px-2 py-1">Order Number</th>
+                          <th className="px-2 py-1">Order Type</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {caseDetails.orders.map((o, i) => (
+                          <tr key={i} className="border-b last:border-0">
+                            <td className="px-2 py-1">{o.orderDate || '\u2014'}</td>
+                            <td className="px-2 py-1">{o.orderNumber || '\u2014'}</td>
+                            <td className="px-2 py-1">{o.orderType || '\u2014'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
