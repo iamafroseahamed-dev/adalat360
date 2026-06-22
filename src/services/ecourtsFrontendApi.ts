@@ -1,9 +1,68 @@
 const ECOURTS_PROXY_BASE = '/hcservices-proxy';
 
-const TEST_CASE_NUMBER = 'WP/16207/2026';
-const TEST_CASE_TYPE_ORDER = '49';
-const TEST_CASE_NO_ORDER = '16207';
-const TEST_CASE_YEAR_ORDER = '2026';
+const HC_CASE_TYPE_NUMERIC: Record<string, string> = {
+  WP: '49',
+  WA: '48',
+  WMP: '133',
+  WPMP: '134',
+  WAMP: '132',
+  WVMP: '135',
+  WPCRL: '334',
+  WPMPCRL: '346',
+  CRLOP: '12',
+  CRLA: '11',
+  CRLRC: '13',
+  CRLMC: '114',
+  CRLMP: '114',
+  CRLREF: '51',
+  AS: '1',
+  SA: '38',
+  CMA: '2',
+  CMSA: '5',
+  LPA: '24',
+  CRP: '15',
+  CRPNPD: '16',
+  CRPPD: '17',
+  CMP: '113',
+  OSA: '120',
+  RFA: '1',
+  OP: '119',
+  OS: '19',
+  CS: '19',
+  OA: '117',
+  OMS: '118',
+  TC: '40',
+  TCA: '41',
+  TCP: '42',
+  TCR: '43',
+  TCMP: '126',
+  HCP: '22',
+  HCMP: '115',
+  CONTP: '9',
+  CONTPMD: '166',
+  CONTA: '7',
+  CONTAPP: '143',
+  CP: '10',
+  COMAPEL: '6',
+  COMPA: '142',
+  IP: '23',
+  IA: '116',
+  IC: '146',
+  IN: '141',
+  ELP: '144',
+  EP: '145',
+  REVAPLC: '32',
+  REVAPLO: '122',
+  REVAPLW: '34',
+  REVAPPL: '35',
+  REVPET: '123',
+  PIL: '49',
+  MP: '113',
+  RC: '30',
+  RCP: '31',
+  RCMP: '121',
+  RT: '37',
+};
 
 export type EcourtsCaptchaChallenge = {
   caseNumber: string;
@@ -71,6 +130,39 @@ export class EcourtsError extends Error {
 
 function clean(value: unknown): string {
   return String(value ?? '').trim().replace(/\s+/g, ' ');
+}
+
+function normalizeCaseType(value: string): string {
+  return clean(value)
+    .toUpperCase()
+    .replace(/[.\s_-]+/g, '');
+}
+
+function parseCaseNumber(caseNumber: string): {
+  caseNumber: string;
+  caseType: string;
+  caseTypeOrder: string;
+  caseNumberOrder: string;
+  caseYearOrder: string;
+} {
+  const normalizedCaseNumber = clean(caseNumber).toUpperCase();
+  const [rawType = '', rawNumber = '', rawYear = ''] = normalizedCaseNumber.split('/');
+  const caseType = normalizeCaseType(rawType);
+  const caseNumberOrder = rawNumber.replace(/\D/g, '');
+  const caseYearOrder = rawYear.replace(/\D/g, '');
+  const caseTypeOrder = HC_CASE_TYPE_NUMERIC[caseType] ?? '';
+
+  if (!caseType || !caseNumberOrder || !caseYearOrder || !caseTypeOrder) {
+    throw new EcourtsError('UNKNOWN', `Unsupported or invalid case number: ${caseNumber}`);
+  }
+
+  return {
+    caseNumber: normalizedCaseNumber,
+    caseType,
+    caseTypeOrder,
+    caseNumberOrder,
+    caseYearOrder,
+  };
 }
 
 function buildPdfUrl(record: {
@@ -234,7 +326,7 @@ function parsePartySpan(span: Element | null): { name: string; advocate: string 
       continue;
     }
     if (/advocate-/i.test(line)) {
-      currentAdvocate = line.replace(/(?i)advocate-\s*/, '').trim();
+      currentAdvocate = line.replace(/advocate-\s*/i, '').trim();
       continue;
     }
     if (!currentName) {
@@ -508,7 +600,8 @@ async function bootstrapSession(): Promise<void> {
   }
 }
 
-export async function loadShowRecordsCaptcha(): Promise<EcourtsCaptchaChallenge> {
+export async function loadShowRecordsCaptcha(caseNumber: string): Promise<EcourtsCaptchaChallenge> {
+  const parsedCase = parseCaseNumber(caseNumber);
   await bootstrapSession();
 
   const random = Math.floor(Math.random() * 1_000_000);
@@ -538,21 +631,22 @@ export async function loadShowRecordsCaptcha(): Promise<EcourtsCaptchaChallenge>
   }
 
   return {
-    caseNumber: TEST_CASE_NUMBER,
+    caseNumber: parsedCase.caseNumber,
     captchaImage: await responseToDataUrl(resp),
   };
 }
 
-export async function submitShowRecordsCaptcha(args: { captchaValue: string }): Promise<EcourtsShowRecordsResult> {
+export async function submitShowRecordsCaptcha(args: { caseNumber: string; captchaValue: string }): Promise<EcourtsShowRecordsResult> {
+  const parsedCase = parseCaseNumber(args.caseNumber);
   const payload = new URLSearchParams({
     court_code: '1',
     state_code: '10',
     court_complex_code: '1',
     caseStatusSearchType: 'COcaseNumber',
     captcha: args.captchaValue,
-    case_type_order: TEST_CASE_TYPE_ORDER,
-    case_no_order: TEST_CASE_NO_ORDER,
-    rgyearCaseOrder: TEST_CASE_YEAR_ORDER,
+    case_type_order: parsedCase.caseTypeOrder,
+    case_no_order: parsedCase.caseNumberOrder,
+    rgyearCaseOrder: parsedCase.caseYearOrder,
   });
 
   let response: Response;

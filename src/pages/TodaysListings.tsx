@@ -24,8 +24,10 @@ import {
   loadShowRecordsCaptcha,
   submitShowRecordsCaptcha,
   type EcourtsCaptchaChallenge,
+  type EcourtsCaseDetails,
+  type EcourtsHearingRecord,
   type EcourtsOrderRecord,
-  type EcourtsShowRecordsResult,
+  type EcourtsParsedCaseHistory,
   EcourtsError,
 } from '@/services/ecourtsFrontendApi';
 
@@ -94,13 +96,12 @@ export default function TodaysListingsPage() {
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<TodayMatchedListing | null>(null);
   const [captchaChallenge, setCaptchaChallenge] = useState<EcourtsCaptchaChallenge | null>(null);
-  const [orderRecords, setOrderRecords] = useState<EcourtsOrderRecord[]>([]);
-  const [caseHistoryHtml, setCaseHistoryHtml] = useState('');
+  const [parsedCaseHistory, setParsedCaseHistory] = useState<EcourtsParsedCaseHistory | null>(null);
   const [captchaImageUrl, setCaptchaImageUrl] = useState<string | null>(null);
   const [captchaValue, setCaptchaValue] = useState('');
   const [captchaSubmitting, setCaptchaSubmitting] = useState(false);
   const [detailsPhase, setDetailsPhase] = useState<string | null>(null);
-  const [detailsTab, setDetailsTab] = useState<'overview' | 'hearings' | 'orders' | 'raw'>('raw');
+  const [detailsTab, setDetailsTab] = useState<'overview' | 'hearings' | 'orders' | 'debug' | 'raw'>('overview');
 
   // ── Data loading ──────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -222,6 +223,9 @@ export default function TodaysListingsPage() {
     return 'Unable to load showRecords test';
   }
 
+  const caseDetails: EcourtsCaseDetails | null = parsedCaseHistory?.caseDetails ?? null;
+  const hearingHistory: EcourtsHearingRecord[] = parsedCaseHistory?.hearingHistory ?? [];
+  const orderRecords: EcourtsOrderRecord[] = parsedCaseHistory?.orders ?? [];
   const primaryOrder = orderRecords[0] ?? null;
 
   function handleViewPdf(record: EcourtsOrderRecord) {
@@ -230,18 +234,6 @@ export default function TodaysListingsPage() {
     console.log('PDF URL');
     console.log(record.pdfUrl);
     window.open(record.pdfUrl, '_blank');
-  }
-
-  function handleDownloadPdf(record: EcourtsOrderRecord) {
-    console.log('ORDER DATA');
-    console.log(record);
-    console.log('PDF URL');
-    console.log(record.pdfUrl);
-
-    const link = document.createElement('a');
-    link.href = record.pdfUrl;
-    link.target = '_blank';
-    link.click();
   }
 
   async function handleViewDetails(row: TodayMatchedListing) {
@@ -254,9 +246,8 @@ export default function TodaysListingsPage() {
     setSelectedRecord(row);
     setDetailsError(null);
     setCaptchaChallenge(null);
-    setOrderRecords([]);
-    setCaseHistoryHtml('');
-    setDetailsTab('raw');
+    setParsedCaseHistory(null);
+    setDetailsTab('overview');
     setCaptchaValue('');
     setCaptchaImageUrl(null);
     setIsCaptchaDialogOpen(true);
@@ -264,7 +255,7 @@ export default function TodaysListingsPage() {
     setDetailsPhase('Loading Captcha');
 
     try {
-      const challenge = await loadShowRecordsCaptcha();
+      const challenge = await loadShowRecordsCaptcha(caseNumber);
       setCaptchaChallenge(challenge);
       setCaptchaImageUrl(challenge.captchaImage);
     } catch (err) {
@@ -287,11 +278,11 @@ export default function TodaysListingsPage() {
     setDetailsError(null);
     setDetailsPhase('Loading Case History');
     try {
-      const result: EcourtsShowRecordsResult = await submitShowRecordsCaptcha({ captchaValue: captcha });
-      setOrderRecords(result.orderRecords);
-      setCaseHistoryHtml(result.caseHistoryHtml);
-      setDetailsTab('raw');
-      toast.success('Case history HTML loaded.');
+      const caseNumber = (selectedRecord.case_number ?? '').trim().toUpperCase();
+      const result = await submitShowRecordsCaptcha({ caseNumber, captchaValue: captcha });
+      setParsedCaseHistory(result.parsedCaseHistory);
+      setDetailsTab('overview');
+      toast.success('Case history loaded.');
     } catch (err) {
       setDetailsError(toUserErrorMessage(err));
     } finally {
@@ -552,8 +543,7 @@ export default function TodaysListingsPage() {
             setCaptchaValue('');
             setDetailsError(null);
             setDetailsPhase(null);
-            setOrderRecords([]);
-            setCaseHistoryHtml('');
+            setParsedCaseHistory(null);
           }
         }}
       >
@@ -566,21 +556,21 @@ export default function TodaysListingsPage() {
             <div className="rounded-md border p-4">
               <h3 className="text-sm font-semibold">Case Information</h3>
               <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-                <p><span className="font-medium">Case Number:</span> {primaryOrder ? `${primaryOrder.typeName}/${primaryOrder.registrationNumber}/${primaryOrder.registrationYear}` : captchaChallenge?.caseNumber ?? 'WP/16207/2026'}</p>
-                <p><span className="font-medium">CNR:</span> {primaryOrder?.cino || '\u2014'}</p>
-                <p><span className="font-medium">Registration Number:</span> {primaryOrder?.registrationNumber || '\u2014'}</p>
-                <p><span className="font-medium">Registration Year:</span> {primaryOrder?.registrationYear || '\u2014'}</p>
+                <p><span className="font-medium">Case Number:</span> {caseDetails?.caseNumber || captchaChallenge?.caseNumber || selectedRecord?.case_number || '\u2014'}</p>
+                <p><span className="font-medium">CNR:</span> {caseDetails?.cnrNumber || primaryOrder?.cino || '\u2014'}</p>
+                <p><span className="font-medium">Registration Number:</span> {caseDetails?.registrationNumber || primaryOrder?.registrationNumber || '\u2014'}</p>
+                <p><span className="font-medium">Filing Number:</span> {caseDetails?.filingNumber || '\u2014'}</p>
               </div>
             </div>
 
-            {!orderRecords.length && detailsLoading && (
+            {!parsedCaseHistory && detailsLoading && (
               <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {detailsPhase ? `${detailsPhase}...` : 'Loading captcha...'}
               </div>
             )}
 
-            {!orderRecords.length && !detailsLoading && captchaImageUrl ? (
+            {!parsedCaseHistory && !detailsLoading && captchaImageUrl ? (
               <img
                 src={captchaImageUrl}
                 alt="Captcha"
@@ -588,11 +578,11 @@ export default function TodaysListingsPage() {
               />
             ) : null}
 
-            {!orderRecords.length && !detailsLoading && !captchaImageUrl && !detailsError ? (
+            {!parsedCaseHistory && !detailsLoading && !captchaImageUrl && !detailsError ? (
               <p className="text-sm text-muted-foreground">Captcha image unavailable.</p>
             ) : null}
 
-            {!orderRecords.length && (
+            {!parsedCaseHistory && (
               <>
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground">Enter Captcha</label>
@@ -614,21 +604,60 @@ export default function TodaysListingsPage() {
               </>
             )}
 
-            {orderRecords.length > 0 && (
+            {parsedCaseHistory && (
               <Tabs value={detailsTab} onValueChange={(value) => setDetailsTab(value as typeof detailsTab)}>
                 <TabsList>
                   <TabsTrigger value="overview">Overview</TabsTrigger>
                   <TabsTrigger value="hearings">Hearing History</TabsTrigger>
                   <TabsTrigger value="orders">Orders</TabsTrigger>
+                  <TabsTrigger value="debug">Debug</TabsTrigger>
                   <TabsTrigger value="raw">Raw HTML</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="overview" className="rounded-md border p-4 text-sm text-muted-foreground">
-                  Overview parsing not implemented yet.
+                <TabsContent value="overview" className="rounded-md border p-4">
+                  <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                    <p><span className="font-medium">Case Number:</span> {caseDetails?.caseNumber || '\u2014'}</p>
+                    <p><span className="font-medium">CNR Number:</span> {caseDetails?.cnrNumber || '\u2014'}</p>
+                    <p><span className="font-medium">Case Status:</span> {caseDetails?.caseStatus || '\u2014'}</p>
+                    <p><span className="font-medium">Next Hearing Date:</span> {fmtDate(caseDetails?.nextHearingDate)}</p>
+                    <p><span className="font-medium">Petitioner:</span> {parsedCaseHistory.parties.petitioner || '\u2014'}</p>
+                    <p><span className="font-medium">Respondent:</span> {parsedCaseHistory.parties.respondent || '\u2014'}</p>
+                    <p><span className="font-medium">Judge:</span> {caseDetails?.judgeName || '\u2014'}</p>
+                    <p><span className="font-medium">Court:</span> {caseDetails?.courtNumber || '\u2014'}</p>
+                    <p><span className="font-medium">Petitioner Advocate:</span> {parsedCaseHistory.parties.petitionerAdvocate || '\u2014'}</p>
+                    <p><span className="font-medium">Respondent Advocate:</span> {parsedCaseHistory.parties.respondentAdvocate || '\u2014'}</p>
+                  </div>
                 </TabsContent>
 
-                <TabsContent value="hearings" className="rounded-md border p-4 text-sm text-muted-foreground">
-                  Hearing history parsing not implemented yet.
+                <TabsContent value="hearings" className="rounded-md border p-4">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left">
+                          <th className="py-2 pr-3">Date</th>
+                          <th className="py-2 pr-3">Purpose</th>
+                          <th className="py-2 pr-3">Stage</th>
+                          <th className="py-2">Remarks</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {hearingHistory.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="py-3 text-center text-muted-foreground">No hearing history found.</td>
+                          </tr>
+                        ) : (
+                          hearingHistory.map((hearing, index) => (
+                            <tr key={`${hearing.hearingDate}-${index}`} className="border-b last:border-0">
+                              <td className="py-2 pr-3 whitespace-nowrap">{fmtDate(hearing.hearingDate)}</td>
+                              <td className="py-2 pr-3">{hearing.purpose || '\u2014'}</td>
+                              <td className="py-2 pr-3">{hearing.stage || '\u2014'}</td>
+                              <td className="py-2">{hearing.remarks || '\u2014'}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="orders" className="rounded-md border p-4">
@@ -654,9 +683,6 @@ export default function TodaysListingsPage() {
                                 <Button size="sm" variant="outline" onClick={() => handleViewPdf(record)}>
                                   View PDF
                                 </Button>
-                                <Button size="sm" onClick={() => handleDownloadPdf(record)}>
-                                  Download PDF
-                                </Button>
                               </div>
                             </td>
                           </tr>
@@ -666,11 +692,15 @@ export default function TodaysListingsPage() {
                   </div>
                 </TabsContent>
 
+                <TabsContent value="debug" className="rounded-md border p-3">
+                  <pre className="max-h-[700px] overflow-auto text-xs">{JSON.stringify(parsedCaseHistory, null, 2)}</pre>
+                </TabsContent>
+
                 <TabsContent value="raw" className="rounded-md border p-3">
                   <ScrollArea className="h-[700px]">
                     <div
                       dangerouslySetInnerHTML={{
-                        __html: caseHistoryHtml,
+                        __html: parsedCaseHistory.rawHtml,
                       }}
                     />
                   </ScrollArea>
