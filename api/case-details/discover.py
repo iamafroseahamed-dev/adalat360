@@ -707,7 +707,7 @@ def _handle_case_details_flow(
             case_number
             or listing.get("case_number")
             or case_row.get("case_number")
-        ).upper()
+        ).upper() 
         if not effective_case_number:
             return None, "caseNumber is required for discovery.", None
 
