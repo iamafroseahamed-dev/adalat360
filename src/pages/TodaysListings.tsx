@@ -5,50 +5,16 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
-import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  ChevronLeft, ChevronRight, Download, Eye, FileText, Loader2, RefreshCw, X,
+  ChevronLeft, ChevronRight, RefreshCw, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getCaseDetails, getOrder } from '@/services/ecourtsApi';
 import type { TodayMatchedListing } from '@/types';
-
-type CaseOrder = {
-  orderDate: string;
-  orderNumber: string;
-  orderType: string;
-  orderUrl: string;
-  category: 'judgment' | 'interim' | 'other';
-};
-
-type CaseDetails = {
-  caseNumber: string;
-  cnrNumber: string;
-  courtName: string;
-  caseStatus: string;
-  nextHearingDate: string | null;
-  petitioners: string[];
-  respondents: string[];
-  petitionerAdvocates: string[];
-  respondentAdvocates: string[];
-  hearingHistory: Array<{ date: string; purpose: string; businessDate: string; remarks: string }>;
-  orders: CaseOrder[];
-  orderCount: number;
-  judgmentCount: number;
-  interimOrderCount: number;
-  filingDate: string | null;
-  registrationDate: string | null;
-  disposalDate: string | null;
-  disposalNature: string | null;
-  acts: string[];
-};
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -110,13 +76,6 @@ export default function TodaysListingsPage() {
   const [sortField, setSortField] = useState<SortField>('court_hall');
   const [sortDir,   setSortDir  ] = useState<SortDir>('asc');
   const [page, setPage]           = useState(1);
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
-  const [selectedRecord, setSelectedRecord] = useState<TodayMatchedListing | null>(null);
-  const [caseDetails, setCaseDetails] = useState<CaseDetails | null>(null);
-  const [orderDownloading, setOrderDownloading] = useState<string | null>(null);
-  const [lastOrderInfo, setLastOrderInfo] = useState<{ filename: string; downloadFilename?: string } | null>(null);
 
   // ── Data loading ──────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -230,269 +189,6 @@ export default function TodaysListingsPage() {
   function SortIcon({ field }: { field: SortField }) {
     if (sortField !== field) return <span className="ml-1 text-muted-foreground/40">&#8597;</span>;
     return <span className="ml-1">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>;
-  }
-
-  async function loadCaseDetails(record: TodayMatchedListing) {
-    setDetailsLoading(true);
-    setDetailsError(null);
-    try {
-      const cnr = record.case?.cnr_number ?? record.cnr_number ?? '';
-      const caseNumber = record.case_number ?? record.case?.case_number ?? '';
-
-      // Calls go through Vite proxy at /ecourts-proxy → eCourtsIndia API
-      // The proxy injects the Authorization header (API key never reaches the browser)
-
-      // If CNR exists, fetch case details directly
-      let resolvedCnr = cnr;
-
-      if (!resolvedCnr) {
-        // Search by case number to discover CNR
-        if (!caseNumber) {
-          setDetailsError('No CNR and no case number available to search.');
-          return;
-        }
-        const parsed = caseNumber.replace(/\s+/g, '').toUpperCase().split('/');
-        if (parsed.length !== 3) {
-          setDetailsError(`Cannot parse case number: ${caseNumber}. Expected TYPE/NUMBER/YEAR.`);
-          return;
-        }
-
-        const searchPayload = {
-          case_type: parsed[0],
-          case_number: parsed[1].replace(/\D/g, ''),
-          year: parsed[2].replace(/\D/g, ''),
-          state_code: '33',
-          court_code: '1',
-        };
-
-        let searchUrl = '/ecourts-proxy/api/partner/search';
-        let searchMethod: 'POST' | 'GET' = 'POST';
-        let searchRes = await fetch(searchUrl, {
-          method: searchMethod,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(searchPayload),
-        });
-
-        if (searchRes.status === 405) {
-          const qs = new URLSearchParams(searchPayload).toString();
-          searchUrl = `/ecourts-proxy/api/partner/search?${qs}`;
-          searchMethod = 'GET';
-          searchRes = await fetch(searchUrl, {
-            method: searchMethod,
-            headers: { 'Accept': 'application/json' },
-          });
-        }
-
-        if (searchRes.status === 405) {
-          searchUrl = '/ecourts-proxy/api/partner/case/search';
-          searchMethod = 'POST';
-          searchRes = await fetch(searchUrl, {
-            method: searchMethod,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(searchPayload),
-          });
-        }
-
-        const searchText = await searchRes.text();
-        console.log('[case-details] Search request:', searchMethod, searchUrl, searchPayload);
-        console.log('[case-details] Search response:', searchRes.status, searchText.slice(0, 500));
-        let searchData: any = {};
-        try { searchData = searchText ? JSON.parse(searchText) : {}; } catch { /* not JSON */ }
-
-        if (!searchRes.ok) {
-          setDetailsError(`Search API ${searchMethod} ${searchUrl} returned ${searchRes.status}: ${searchText.slice(0, 300)}`);
-          return;
-        }
-
-        const results = Array.isArray(searchData)
-          ? searchData
-          : searchData?.results
-            ?? searchData?.con
-            ?? searchData?.data?.results
-            ?? searchData?.data
-            ?? [];
-        const firstResult = Array.isArray(results) ? (results[0] ?? null) : null;
-        const discoveredCnr = String(
-          firstResult?.cino
-          ?? firstResult?.cnr
-          ?? firstResult?.cnrNumber
-          ?? firstResult?.cnr_number
-          ?? firstResult?.id
-          ?? '',
-        ).trim();
-
-        if (!firstResult || !discoveredCnr) {
-          setDetailsError(`Case not found in eCourtsIndia. Response: ${JSON.stringify(searchData).slice(0, 200)}`);
-          return;
-        }
-
-        resolvedCnr = discoveredCnr;
-
-        // Save discovered CNR to database
-        if (record.case_id) {
-          await supabase
-            .from('cases')
-            .update({ cnr_number: resolvedCnr, cnr_discovered_at: new Date().toISOString() })
-            .eq('id', record.case_id);
-        }
-      }
-
-      // Enforce Madras High Court scope: CNR must be in the HCMA court complex
-      // (HCMA01 = Principal Seat, HCMA02 = Madurai Bench, etc.).
-      if (!resolvedCnr.trim().toUpperCase().startsWith('HCMA')) {
-        setDetailsError('Only Madras High Court cases are supported.');
-        return;
-      }
-
-      // Fetch case details by CNR via the shared eCourts service.
-      let data: any;
-      try {
-        data = await getCaseDetails(resolvedCnr);
-      } catch (e) {
-        setDetailsError(e instanceof Error ? e.message : 'Unable to retrieve case details');
-        return;
-      }
-      console.log('[case-details] Parsed:', data);
-
-      // Some API responses nest the payload under `data` / `courtCaseData`.
-      const cc = data.courtCaseData ?? data.data?.courtCaseData ?? data.data ?? data;
-
-      const mapOrders = (
-        list: any[] | undefined,
-        category: CaseOrder['category'],
-      ): CaseOrder[] =>
-        (list ?? []).map((o: Record<string, string>) => ({
-          orderDate: o.orderDate ?? o.order_date ?? '',
-          orderNumber: o.orderNumber ?? o.order_no ?? o.order_number ?? '',
-          orderType: o.orderType ?? o.order_type ?? (category === 'judgment' ? 'JUDGMENT' : category === 'interim' ? 'INTERIM ORDER' : ''),
-          orderUrl: o.orderUrl ?? o.order_url ?? o.url ?? '',
-          category,
-        }));
-
-      const judgmentOrders = mapOrders(cc.judgmentOrders, 'judgment');
-      const interimOrders = mapOrders(cc.interimOrders, 'interim');
-      const legacyOrders = mapOrders(cc.orders ?? data.orders, 'other');
-      const allOrders = [...judgmentOrders, ...interimOrders, ...legacyOrders];
-
-      // Map API response to CaseDetails
-      const caseDetails: CaseDetails = {
-        caseNumber: data.case_no ?? cc.case_no ?? `${data.case_type ?? ''}/${data.reg_no ?? ''}/${data.reg_year ?? ''}`,
-        cnrNumber: data.cino ?? cc.cnr ?? data.cnr ?? resolvedCnr,
-        courtName: data.court_name ?? cc.courtName ?? 'Madras High Court',
-        caseStatus: data.case_status ?? cc.caseStatus ?? '',
-        nextHearingDate: data.next_hearing_date ?? cc.nextHearingDate ?? null,
-        petitioners: data.petitioner ?? cc.petitioners ?? [],
-        respondents: data.respondent ?? cc.respondents ?? [],
-        petitionerAdvocates: data.pet_adv ?? cc.petitionerAdvocates ?? [],
-        respondentAdvocates: data.res_adv ?? cc.respondentAdvocates ?? [],
-        hearingHistory: (data.hearing_history ?? cc.hearingHistory ?? []).map((h: Record<string, string>) => ({
-          date: h.hearing_date ?? h.hearingDate ?? '',
-          purpose: h.purpose ?? '',
-          businessDate: h.business_date ?? h.businessDate ?? '',
-          remarks: h.remarks ?? '',
-        })),
-        orders: allOrders,
-        orderCount: allOrders.length,
-        judgmentCount: judgmentOrders.length,
-        interimOrderCount: interimOrders.length,
-        filingDate: data.filing_date ?? cc.filingDate ?? null,
-        registrationDate: data.reg_date ?? cc.registrationDate ?? null,
-        disposalDate: data.disposal_date ?? cc.disposalDate ?? null,
-        disposalNature: data.disposal_nature ?? cc.disposalNature ?? null,
-        acts: data.acts ?? cc.acts ?? [],
-      };
-
-      setCaseDetails(caseDetails);
-
-      // Save to database for caching
-      if (record.case_id) {
-        await supabase
-          .from('cases')
-          .update({
-            case_details_json: caseDetails,
-            case_details_last_fetched: new Date().toISOString(),
-            case_status: caseDetails.caseStatus || undefined,
-            petitioner: caseDetails.petitioners.join(', ') || undefined,
-            respondent: caseDetails.respondents.join(', ') || undefined,
-            next_hearing_date: caseDetails.nextHearingDate || undefined,
-          })
-          .eq('id', record.case_id);
-      }
-
-      await fetchData();
-    } catch (err) {
-      console.error('[case-details] Error:', err);
-      setDetailsError(err instanceof Error ? err.message : 'Unable to retrieve case details');
-    } finally {
-      setDetailsLoading(false);
-    }
-  }
-
-  function openCaseDetails(record: TodayMatchedListing) {
-    setSelectedRecord(record);
-    setCaseDetails(null);
-    setDetailsError(null);
-    setLastOrderInfo(null);
-    setIsDetailsOpen(true);
-    void loadCaseDetails(record);
-  }
-
-  // Download an order PDF directly in the browser via the shared eCourts service.
-  async function handleDownloadOrder(order: CaseOrder) {
-    const cnr = caseDetails?.cnrNumber ?? '';
-    if (!cnr || !order.orderUrl) {
-      toast.error('Unable to download order.');
-      return;
-    }
-    const key = `dl:${order.category}:${order.orderUrl}`;
-    setOrderDownloading(key);
-    try {
-      const result = await getOrder(cnr, order.orderUrl);
-      setLastOrderInfo({ filename: result.filename, downloadFilename: result.downloadFilename });
-
-      const href = result.url ?? result.blobUrl;
-      if (!href) throw new Error('No downloadable file was returned.');
-
-      const a = document.createElement('a');
-      a.href = href;
-      a.download = result.downloadFilename ?? result.filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      if (result.blobUrl) {
-        window.setTimeout(() => URL.revokeObjectURL(result.blobUrl as string), 60_000);
-      }
-      toast.success(`Downloaded ${result.downloadFilename ?? result.filename}`);
-    } catch (err) {
-      console.error('[order-download] Error:', err);
-      toast.error('Unable to download order.');
-    } finally {
-      setOrderDownloading(null);
-    }
-  }
-
-  // Open an order PDF in a new browser tab via the shared eCourts service.
-  async function handleViewOrder(order: CaseOrder) {
-    const cnr = caseDetails?.cnrNumber ?? '';
-    if (!cnr || !order.orderUrl) {
-      toast.error('Unable to download order.');
-      return;
-    }
-    const key = `view:${order.category}:${order.orderUrl}`;
-    setOrderDownloading(key);
-    try {
-      const result = await getOrder(cnr, order.orderUrl);
-      setLastOrderInfo({ filename: result.filename, downloadFilename: result.downloadFilename });
-
-      const href = result.url ?? result.blobUrl;
-      if (!href) throw new Error('No viewable file was returned.');
-      window.open(href, '_blank', 'noopener,noreferrer');
-    } catch (err) {
-      console.error('[order-view] Error:', err);
-      toast.error('Unable to download order.');
-    } finally {
-      setOrderDownloading(null);
-    }
   }
 
   return (
@@ -630,7 +326,6 @@ export default function TodaysListingsPage() {
                   <TableHead className="whitespace-nowrap">Respondent</TableHead>
                   <TableHead className="whitespace-nowrap">Judge</TableHead>
                   <TableHead className="whitespace-nowrap">Stage Status</TableHead>
-                  <TableHead className="whitespace-nowrap">Case Details</TableHead>
                   <TableHead className="whitespace-nowrap">Notification</TableHead>
                 </TableRow>
               </TableHeader>
@@ -638,7 +333,7 @@ export default function TodaysListingsPage() {
               <TableBody>
                 {paginated.length === 0 ? (
                   <TableRow>
-                      <TableCell colSpan={10}
+                      <TableCell colSpan={9}
                       className="py-10 text-center text-muted-foreground">
                       No records match your filters.
                     </TableCell>
@@ -696,17 +391,6 @@ export default function TodaysListingsPage() {
                           {record.stage  ?? '\u2014'}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 gap-1.5 text-xs"
-                            onClick={() => openCaseDetails(record)}
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                            View Case Details
-                          </Button>
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
                           <NotifBadge status={record.notification_status} />
                         </TableCell>
                       </TableRow>,
@@ -740,182 +424,6 @@ export default function TodaysListingsPage() {
           )}
         </>
       )}
-
-      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Eye className="h-4 w-4" />
-              Case Details
-            </DialogTitle>
-            <div className="flex flex-wrap items-center gap-1.5 pt-1">
-              <Badge variant="default" className="text-[10px]">Madras High Court</Badge>
-              <Badge variant="secondary" className="text-[10px]">HCMA01</Badge>
-              <Badge variant="info" className="text-[10px]">Tamil Nadu</Badge>
-            </div>
-          </DialogHeader>
-
-          {detailsLoading && (
-            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading case details...
-            </div>
-          )}
-
-          {!detailsLoading && detailsError && (
-            <div className="space-y-2">
-              <p className="text-sm text-destructive">{detailsError}</p>
-              {selectedRecord && (
-                <Button size="sm" variant="outline" onClick={() => loadCaseDetails(selectedRecord)}>
-                  Retry
-                </Button>
-              )}
-            </div>
-          )}
-
-          {!detailsLoading && caseDetails && (
-            <div className="space-y-4 text-sm">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <p><span className="font-medium">Case Number:</span> {caseDetails.caseNumber || '\u2014'}</p>
-                <p><span className="font-medium">CNR Number:</span> {caseDetails.cnrNumber || '\u2014'}</p>
-                <p><span className="font-medium">Court Name:</span> {caseDetails.courtName || '\u2014'}</p>
-                <p><span className="font-medium">Case Status:</span> {caseDetails.caseStatus || '\u2014'}</p>
-                <p><span className="font-medium">Next Hearing Date:</span> {caseDetails.nextHearingDate ? fmtDate(caseDetails.nextHearingDate) : '\u2014'}</p>
-                <p><span className="font-medium">Filing Date:</span> {caseDetails.filingDate ? fmtDate(caseDetails.filingDate) : '\u2014'}</p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="rounded-md border p-3">
-                  <p className="mb-1 text-sm font-semibold">Petitioners</p>
-                  {caseDetails.petitioners.length === 0
-                    ? <p className="text-muted-foreground">{'\u2014'}</p>
-                    : <ul className="list-disc pl-4 text-sm text-muted-foreground">
-                        {caseDetails.petitioners.map((p, i) => <li key={i}>{p}</li>)}
-                      </ul>
-                  }
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="mb-1 text-sm font-semibold">Respondents</p>
-                  {caseDetails.respondents.length === 0
-                    ? <p className="text-muted-foreground">{'\u2014'}</p>
-                    : <ul className="list-disc pl-4 text-sm text-muted-foreground">
-                        {caseDetails.respondents.map((r, i) => <li key={i}>{r}</li>)}
-                      </ul>
-                  }
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-sm font-semibold">Hearing History</p>
-                {caseDetails.hearingHistory.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No hearing history available.</p>
-                ) : (
-                  <div className="overflow-x-auto rounded-md border">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b bg-muted/40 text-left">
-                          <th className="px-2 py-1">Date</th>
-                          <th className="px-2 py-1">Purpose</th>
-                          <th className="px-2 py-1">Remarks</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {caseDetails.hearingHistory.map((h, i) => (
-                          <tr key={i} className="border-b last:border-0">
-                            <td className="px-2 py-1 whitespace-nowrap">{h.date || '\u2014'}</td>
-                            <td className="px-2 py-1">{h.purpose || '\u2014'}</td>
-                            <td className="px-2 py-1">{h.remarks || '\u2014'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-semibold">Orders</p>
-                  <Badge variant="secondary" className="text-[10px]">Orders: {caseDetails.orderCount}</Badge>
-                  <Badge variant="success" className="text-[10px]">Judgments: {caseDetails.judgmentCount}</Badge>
-                  <Badge variant="info" className="text-[10px]">Interim Orders: {caseDetails.interimOrderCount}</Badge>
-                </div>
-                {caseDetails.orderCount === 0 ? (
-                  <p className="text-sm text-muted-foreground">No orders available for this case.</p>
-                ) : (
-                  <div className="overflow-x-auto rounded-md border">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b bg-muted/40 text-left">
-                          <th className="px-2 py-1">Order Date</th>
-                          <th className="px-2 py-1">Order Type</th>
-                          <th className="px-2 py-1">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {caseDetails.orders.map((o, i) => {
-                          const dlKey = `dl:${o.category}:${o.orderUrl}`;
-                          const viewKey = `view:${o.category}:${o.orderUrl}`;
-                          return (
-                            <tr key={i} className="border-b last:border-0">
-                              <td className="px-2 py-1 whitespace-nowrap">{o.orderDate ? fmtDate(o.orderDate) : '\u2014'}</td>
-                              <td className="px-2 py-1">
-                                <Badge
-                                  variant={o.category === 'judgment' ? 'success' : o.category === 'interim' ? 'info' : 'secondary'}
-                                  className="text-[10px]"
-                                >
-                                  {o.orderType || (o.category === 'judgment' ? 'Judgment' : o.category === 'interim' ? 'Interim Order' : 'Order')}
-                                </Badge>
-                              </td>
-                              <td className="px-2 py-1">
-                                <div className="flex items-center gap-1.5">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 gap-1 text-xs"
-                                    disabled={!o.orderUrl || orderDownloading === viewKey}
-                                    onClick={() => handleViewOrder(o)}
-                                  >
-                                    {orderDownloading === viewKey
-                                      ? <Loader2 className="h-3 w-3 animate-spin" />
-                                      : <Eye className="h-3 w-3" />}
-                                    View Order
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 gap-1 text-xs"
-                                    disabled={!o.orderUrl || orderDownloading === dlKey}
-                                    onClick={() => handleDownloadOrder(o)}
-                                  >
-                                    {orderDownloading === dlKey
-                                      ? <Loader2 className="h-3 w-3 animate-spin" />
-                                      : <Download className="h-3 w-3" />}
-                                    Download PDF
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {lastOrderInfo && (
-                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs leading-5">
-                    <p><span className="font-medium">Filename:</span> {lastOrderInfo.filename}</p>
-                    <p>
-                      <span className="font-medium">Download Filename:</span>{' '}
-                      {lastOrderInfo.downloadFilename ?? '\u2014'}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
