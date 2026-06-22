@@ -33,9 +33,23 @@ ECOURTS_CAPTCHA_URL = f"{ECOURTS_BASE_URL}/hcservices/securimage/securimage_show
 ECOURTS_CASE_URL = (
     f"{ECOURTS_BASE_URL}/hcservices/cases_qry/index_qry.php?action_code=showRecords"
 )
-# Fallback map used only when the eCourts form does not expose the dropdown.
-# Runtime codes are scraped from the <select> element on first request.
-_CASE_TYPE_FALLBACK: Dict[str, str] = {"WP": "49"}
+# Hardcoded Madras High Court case type mapping.
+# Never resolve case type IDs from the eCourts form HTML.
+CASE_TYPE_IDS: Dict[str, str] = {
+    "WP": "49",
+    "WMP": "133",
+    "WA": "48",
+    "WAMP": "132",
+    "WPMP": "134",
+    "CRP": "15",
+    "CMP": "113",
+    "CMA": "2",
+    "HCP": "22",
+    "OP": "119",
+    "OSA": "120",
+    "CONT P": "9",
+    "CONTP": "9",
+}
 # Keep well within Vercel's 60 s maxDuration: (5 + 22) × 2 attempts = 54 s.
 REQUEST_TIMEOUT = (5, 22)
 CAPTCHA_TOKEN_TTL = timedelta(minutes=10)
@@ -70,12 +84,19 @@ def _parse_case_number(s: str) -> Optional[Tuple[str, str, str]]:
     return (ct, cn, cy) if ct and cn and cy else None
 
 
+def _normalize_case_type(case_type: str) -> str:
+    compact = re.sub(r"[.\s_-]+", "", _clean(case_type).upper())
+    if compact == "CONTP":
+        return "CONT P"
+    return compact
+
+
 def _captcha_challenge() -> Dict[str, Any]:
     """
     Three-step captcha setup following the eCourts discovery flow:
       1. GET root URL — captures HCSERVICES_SESSID / JSESSION cookies.
-      2. GET main.php  — scrapes the case-type <select> dropdown.
-      3. GET securimage_show.php?{random} — fetches the captcha image.
+            2. GET main.php.
+            3. GET securimage_show.php?{random} — fetches the captcha image.
     """
     session = _session()
 
@@ -89,26 +110,13 @@ def _captcha_challenge() -> Dict[str, Any]:
     except Exception:
         pass  # non-fatal — cookies may still arrive from main.php
 
-    # Step 2: load main.php to scrape the case-type dropdown
+    # Step 2: load main.php to complete the upstream session flow.
     r = session.get(
         ECOURTS_MAIN_URL,
         headers={"User-Agent": "Mozilla/5.0", "Referer": ECOURTS_ROOT_URL},
         timeout=REQUEST_TIMEOUT,
     )
     r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    casetype_map: Dict[str, str] = {}
-    ct_select = soup.find("select", attrs={"name": "case_type"})
-    if ct_select:
-        for opt in ct_select.find_all("option"):
-            val = str(opt.get("value") or "").strip()
-            if not val or val == "0":
-                continue
-            text = opt.get_text(strip=True)
-            abbr = text.split("-")[0].split("(")[0].strip().upper()
-            if abbr:
-                casetype_map[abbr] = val
 
     # Step 3: fetch captcha image with a random cache-buster parameter
     rand_val = random.random()
@@ -130,19 +138,17 @@ def _captcha_challenge() -> Dict[str, Any]:
     ]
     token_payload = {
         "cookies": cookies_list,
-        "casetype_map": casetype_map,
         "expires": (datetime.utcnow() + CAPTCHA_TOKEN_TTL).isoformat(),
     }
     token = base64.b64encode(json.dumps(token_payload).encode()).decode("ascii")
     return {
         "captchaToken": token,
         "captchaImage": f"data:{mime};base64,{base64.b64encode(img_r.content).decode('ascii')}",
-        "_casetype_map": casetype_map,  # internal — stripped before sending to client
     }
 
 
-def _session_from_token(token: str) -> Tuple[requests.Session, Dict[str, str]]:
-    """Decode a captcha token. Returns (session_with_cookies, casetype_map)."""
+def _session_from_token(token: str) -> requests.Session:
+    """Decode a captcha token and return a session with restored cookies."""
     try:
         data = json.loads(base64.b64decode(token).decode())
     except Exception:
@@ -164,7 +170,7 @@ def _session_from_token(token: str) -> Tuple[requests.Session, Dict[str, str]]:
                 domain=c.get("domain") or "",
                 path=c.get("path") or "/",
             )
-    return session, data.get("casetype_map", {})
+    return session
 
 
 def _extract_cnr_and_case_no(body: str) -> Optional[Dict[str, str]]:
@@ -231,6 +237,7 @@ class handler(BaseHTTPRequestHandler):
             })
 
         case_type, case_no, case_year = parsed
+        normalized_case_type = _normalize_case_type(case_type)
 
         def _load_captcha(msg: str) -> None:
             """Load a fresh captcha page and return the challenge (strips internal key)."""
@@ -253,16 +260,14 @@ class handler(BaseHTTPRequestHandler):
                 ch = _captcha_challenge()
             except Exception as exc:
                 return self._json({"success": False, "message": f"Unable to load captcha: {exc}"})
-            casetype_map: Dict[str, str] = ch.pop("_casetype_map", {})
-            code = casetype_map.get(case_type) or _CASE_TYPE_FALLBACK.get(case_type)
+            code = CASE_TYPE_IDS.get(normalized_case_type)
             if not code:
                 return self._json({
                     "success": False,
                     "error": "CASE_TYPE_MAPPING_NOT_FOUND",
-                    "parsedCaseType": case_type,
+                    "parsedCaseType": normalized_case_type,
                     "message": (
-                        f"Case type '{case_type}' was not found in the eCourts form. "
-                        "Please verify the case number."
+                        f"Case type '{normalized_case_type}' is not configured for Madras High Court lookup."
                     ),
                 })
             return self._json({
@@ -278,17 +283,17 @@ class handler(BaseHTTPRequestHandler):
             return _load_captcha("Captcha is required.")
 
         try:
-            session, casetype_map = _session_from_token(captcha_token)
+            session = _session_from_token(captcha_token)
         except ValueError:
             return _load_captcha("Captcha session expired. Please try again.")
 
-        code = casetype_map.get(case_type) or _CASE_TYPE_FALLBACK.get(case_type)
+        code = CASE_TYPE_IDS.get(normalized_case_type)
         if not code:
             return self._json({
                 "success": False,
                 "error": "CASE_TYPE_MAPPING_NOT_FOUND",
-                "parsedCaseType": case_type,
-                "message": f"Case type '{case_type}' was not found in the eCourts form.",
+                "parsedCaseType": normalized_case_type,
+                "message": f"Case type '{normalized_case_type}' is not configured for Madras High Court lookup.",
             })
 
         try:
