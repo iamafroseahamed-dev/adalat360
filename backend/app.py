@@ -1589,14 +1589,19 @@ class MhcCaseStatusRequest(BaseModel):
 
 
 def _parse_case_components(case_number: str):
-    """Split  TYPE/NUMBER/YEAR  →  (casetype, cno, cyear) or None."""
-    cleaned = re.sub(r'\s+', '/', case_number.strip()).upper()
-    parts   = [p.strip() for p in cleaned.split('/') if p.strip()]
+    """Split  TYPE/NUMBER/YEAR  →  (casetype, cno, cyear) or None.
+    Handles types with spaces e.g. 'CONT P/1505/2026'.
+    """
+    s     = case_number.strip().upper()
+    parts = [p.strip() for p in s.split('/') if p.strip()]
+    if len(parts) < 3:
+        # Fallback: space-separated format e.g. "WP 1141 2025"
+        parts = [p.strip() for p in re.sub(r'\s+', '/', s).split('/') if p.strip()]
     if len(parts) < 3:
         return None
-    casetype = re.sub(r'[^A-Z]', '', parts[0])
-    cno      = re.sub(r'\D', '', parts[1])
-    cyear    = re.sub(r'\D', '', parts[2])
+    cyear    = re.sub(r'\D', '', parts[-1])
+    cno      = re.sub(r'\D', '', parts[-2])
+    casetype = re.sub(r'[^A-Z ]', '', '/'.join(parts[:-2])).strip()
     return (casetype, cno, cyear) if casetype and cno and cyear else None
 
 

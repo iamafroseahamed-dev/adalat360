@@ -23,14 +23,17 @@ MHC_VIEWPDF    = 'https://www.mhc.tn.gov.in/judis/index.php/casestatus/viewpdf'
 
 
 def _parse(case_number: str) -> Optional[Tuple[str, str, str]]:
-    """'WP/1141/2025' → ('WP', '1141', '2025')"""
-    cleaned = re.sub(r'\s+', '/', case_number.strip()).upper()
-    parts   = [p.strip() for p in cleaned.split('/') if p.strip()]
+    """'WP/1141/2025' or 'CONT P/1505/2026' → ('WP', '1141', '2025')"""
+    s     = case_number.strip().upper()
+    parts = [p.strip() for p in s.split('/') if p.strip()]
+    if len(parts) < 3:
+        # Fallback: space-separated format e.g. "WP 1141 2025"
+        parts = [p.strip() for p in re.sub(r'\s+', '/', s).split('/') if p.strip()]
     if len(parts) < 3:
         return None
-    ct  = re.sub(r'[^A-Z]', '', parts[0])
-    cno = re.sub(r'\D', '', parts[1])
-    yr  = re.sub(r'\D', '', parts[2])
+    yr  = re.sub(r'\D', '', parts[-1])
+    cno = re.sub(r'\D', '', parts[-2])
+    ct  = re.sub(r'[^A-Z ]', '', '/'.join(parts[:-2])).strip()
     return (ct, cno, yr) if ct and cno and yr else None
 
 
