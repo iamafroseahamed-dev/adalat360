@@ -68,11 +68,8 @@ export default function TodaysListingsPage() {
 
   // ── Filters ──────────────────────────────────────────────────────────────────
   const todayUtc = useMemo(() => new Date().toISOString().split('T')[0], []);
-  const [listedDateFrom, setListedDateFrom] = useState<string>(todayUtc);
-  const [listedDateTo,   setListedDateTo  ] = useState<string>(todayUtc);
-  const [filterCaseNumber, setFilterCaseNumber] = useState('');
-  const [filterCnr,        setFilterCnr       ] = useState('');
-  const [filterJudge,      setFilterJudge      ] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterJudge, setFilterJudge] = useState('');
   const [sortField, setSortField] = useState<SortField>('court_hall');
   const [sortDir,   setSortDir  ] = useState<SortDir>('asc');
   const [page, setPage]           = useState(1);
@@ -81,9 +78,6 @@ export default function TodaysListingsPage() {
     setLoading(true);
     setError(null);
     try {
-      const from = listedDateFrom || todayUtc;
-      const to   = listedDateTo   || todayUtc;
-
       const { data, error: sbErr } = await supabase
         .from('today_matched_listings')
         .select(`
@@ -132,8 +126,7 @@ export default function TodaysListingsPage() {
             cla_party_status, sensitivity, case_status
           )
         `)
-        .gte('listed_date', from)
-        .lte('listed_date', to)
+        .eq('listed_date', todayUtc)
         .order('listed_date', { ascending: false })
         .order('court_hall',  { ascending: true  })
         .order('item_number', { ascending: true  });
@@ -170,7 +163,7 @@ export default function TodaysListingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [listedDateFrom, listedDateTo, todayUtc]);
+  }, [todayUtc]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -183,15 +176,16 @@ export default function TodaysListingsPage() {
   const filtered = useMemo(() => {
     let rows = listings;
     if (filterJudge) rows = rows.filter(r => r.judge_name === filterJudge);
-    if (filterCaseNumber.trim()) {
-      const q = filterCaseNumber.trim().toLowerCase();
-      rows = rows.filter(r => (r.case_number ?? '').toLowerCase().includes(q));
-    }
-    if (filterCnr.trim()) {
-      const q = filterCnr.trim().toLowerCase();
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
       rows = rows.filter(r =>
-        (r.cnr_number ?? '').toLowerCase().includes(q) ||
-        (r.case?.cnr_number ?? '').toLowerCase().includes(q),
+        (r.case_number ?? '').toLowerCase().includes(q) ||
+        (r.petitioner ?? '').toLowerCase().includes(q) ||
+        (r.respondent ?? '').toLowerCase().includes(q) ||
+        (r.judge_name ?? '').toLowerCase().includes(q) ||
+        (r.stage ?? '').toLowerCase().includes(q) ||
+        (r.court_hall ?? '').toLowerCase().includes(q) ||
+        (r.item_number ?? '').toLowerCase().includes(q),
       );
     }
     return [...rows].sort((a, b) => {
@@ -206,16 +200,16 @@ export default function TodaysListingsPage() {
       return sortDir === 'asc' ? cmp : -cmp;
     });
   }, [listings, filterJudge, filterCaseNumber, filterCnr, sortField, sortDir]);
+  }, [listings, filterJudge, searchQuery, sortField, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage   = Math.min(page, totalPages);
   const paginated  = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const hasFilters = filterCaseNumber || filterCnr || filterJudge ||
-    listedDateFrom !== todayUtc || listedDateTo !== todayUtc;
+  const hasFilters = searchQuery || filterJudge;
 
   function clearFilters() {
-    setFilterCaseNumber(''); setFilterCnr(''); setFilterJudge('');
-    setListedDateFrom(todayUtc); setListedDateTo(todayUtc);
+    setSearchQuery('');
+    setFilterJudge('');
     setPage(1);
   }
 
@@ -236,7 +230,7 @@ export default function TodaysListingsPage() {
         <div>
           <h1 className="text-xl font-semibold">Listings History</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Every time your tracked cases appeared in the Madras High Court cause list.
+            Today&apos;s tracked cases from the Madras High Court cause list.
           </p>
         </div>
         <Button
@@ -248,8 +242,6 @@ export default function TodaysListingsPage() {
               await fetch('/api/todays-cause-list?refresh=1').catch(() => null);
               const res  = await fetch('/api/match-todays-listings', { method: 'POST' });
               const data = await res.json();
-              setListedDateFrom(todayUtc);
-              setListedDateTo(todayUtc);
               await fetchData();
               toast.success(
                 data.matched_count != null
@@ -277,22 +269,10 @@ export default function TodaysListingsPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-2">
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs text-muted-foreground whitespace-nowrap">From</label>
-          <Input type="date" value={listedDateFrom}
-            onChange={e => { setListedDateFrom(e.target.value); setPage(1); }}
-            className="h-9 w-36 text-sm" />
-          <label className="text-xs text-muted-foreground whitespace-nowrap">To</label>
-          <Input type="date" value={listedDateTo}
-            onChange={e => { setListedDateTo(e.target.value); setPage(1); }}
-            className="h-9 w-36 text-sm" />
-        </div>
-        <Input value={filterCaseNumber}
-          onChange={e => { setFilterCaseNumber(e.target.value); setPage(1); }}
-          placeholder="Case No." className="h-9 w-36 text-sm" />
-        <Input value={filterCnr}
-          onChange={e => { setFilterCnr(e.target.value); setPage(1); }}
-          placeholder="CNR" className="h-9 w-44 text-sm" />
+        <Input value={searchQuery}
+          onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
+          placeholder="Search visible columns"
+          className="h-9 w-52 text-sm sm:w-64" />
         <Select value={filterJudge || '__all__'}
           onValueChange={v => { setFilterJudge(v === '__all__' ? '' : v); setPage(1); }}>
           <SelectTrigger className="h-9 w-48 text-sm">
@@ -325,9 +305,9 @@ export default function TodaysListingsPage() {
       )}
       {!loading && !error && listings.length === 0 && (
         <div className="flex flex-col items-center justify-center py-24 text-center text-muted-foreground">
-          <p className="text-base font-medium">No matched listings for the selected date range.</p>
+          <p className="text-base font-medium">No matched listings found for today.</p>
           <p className="mt-1 text-sm">
-            Click <strong>Refresh</strong> to run the matching job, or adjust the date range above.
+            Click <strong>Refresh</strong> to run the matching job for today.
           </p>
         </div>
       )}
