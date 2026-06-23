@@ -199,7 +199,6 @@ export default function TodaysListingsPage() {
       const cmp = av.localeCompare(bv, undefined, { numeric: true });
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [listings, filterJudge, filterCaseNumber, filterCnr, sortField, sortDir]);
   }, [listings, filterJudge, searchQuery, sortField, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
