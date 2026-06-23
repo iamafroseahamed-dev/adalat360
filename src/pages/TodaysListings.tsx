@@ -24,6 +24,16 @@ function fmtDate(iso: string | null | undefined) {
   });
 }
 
+function normalizeJudgeName(value: string | null | undefined) {
+  if (!value) return '';
+  return value
+    .toUpperCase()
+    .replace(/\bTHE\b/g, ' ')
+    .replace(/[.,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 type SortField = 'listed_date' | 'court_hall' | 'item_number' | 'case_number';
 type SortDir   = 'asc' | 'desc';
 
@@ -76,7 +86,8 @@ export default function TodaysListingsPage() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: sbErr } = await supabase
+      const [{ data, error: sbErr }, { data: vcLinkData, error: vcLinkErr }] = await Promise.all([
+        supabase
         .from('today_matched_listings')
         .select(`
           *,
@@ -88,10 +99,30 @@ export default function TodaysListingsPage() {
         .eq('listed_date', todayUtc)
         .order('listed_date', { ascending: false })
         .order('court_hall',  { ascending: true  })
-        .order('item_number', { ascending: true  });
+        .order('item_number', { ascending: true  }),
+        supabase
+          .from('vc_links')
+          .select('judge_name,vc_link')
+          .eq('vc_date', todayUtc)
+          .not('vc_link', 'is', null),
+      ]);
 
       if (sbErr) throw sbErr;
-      const rows = (data ?? []) as unknown as TodayMatchedListing[];
+      if (vcLinkErr) throw vcLinkErr;
+
+      const vcLinkMap = new Map<string, string>();
+      for (const row of vcLinkData ?? []) {
+        const judgeName = normalizeJudgeName(row.judge_name as string | null | undefined);
+        const vcLink = row.vc_link as string | null | undefined;
+        if (judgeName && vcLink && !vcLinkMap.has(judgeName)) {
+          vcLinkMap.set(judgeName, vcLink);
+        }
+      }
+
+      const rows = ((data ?? []) as unknown as TodayMatchedListing[]).map(record => ({
+        ...record,
+        vc_link: record.vc_link ?? vcLinkMap.get(normalizeJudgeName(record.judge_name)) ?? null,
+      }));
       setListings(rows);
 
       // Listing-history counts
