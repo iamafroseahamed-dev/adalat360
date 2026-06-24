@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { getEcourtsCaseType } from '@/config/ecourtsCaseTypes';
 import { hasCredits, NO_CREDITS_MESSAGE, recordApiUsage } from '@/lib/organizations';
-import type { AiCaseAnalysisJson, CaseAiAnalysis, ParsedOrderRecord } from '@/types';
+import type { AiCaseAnalysisJson, AiActionPlanItem, CaseAiAnalysis, ParsedOrderRecord } from '@/types';
 import type { EcourtsCaseData } from '@/components/CaseDetailsModal';
 
 interface SearchResponse {
@@ -75,6 +75,78 @@ function riskVariant(level: string | null | undefined): 'success' | 'warning' | 
     case 'low': return 'success';
     default: return 'secondary';
   }
+}
+
+function asStr(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function asLevel(value: unknown): 'Low' | 'Medium' | 'High' {
+  const v = asStr(value).toLowerCase();
+  if (v === 'high') return 'High';
+  if (v === 'low') return 'Low';
+  return 'Medium';
+}
+
+function asActionPlan(value: unknown): AiActionPlanItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return { step: item, priority: 'Medium' as const, owner: 'Assigned Advocate' };
+      const obj = (item ?? {}) as Record<string, unknown>;
+      const step = asStr(obj.step);
+      if (!step) return null;
+      const priority = asLevel(obj.priority);
+      return { step, priority, owner: asStr(obj.owner) || 'Assigned Advocate' };
+    })
+    .filter((x): x is AiActionPlanItem => x !== null);
+}
+
+/**
+ * Coerce any cached ai_json (including legacy/partial shapes) into the full
+ * 10-section AiCaseAnalysisJson with safe defaults so the UI never crashes on
+ * missing nested fields.
+ */
+function normalizeAnalysis(raw: AiCaseAnalysisJson | null | undefined): AiCaseAnalysisJson | null {
+  if (!raw) return null;
+  const r = raw as unknown as Record<string, unknown>;
+  const risk = (r.litigation_risk_assessment ?? r.risk_assessment ?? {}) as Record<string, unknown>;
+  const hearing = (r.hearing_trend_analysis ?? {}) as Record<string, unknown>;
+  const dept = (r.department_impact_analysis ?? {}) as Record<string, unknown>;
+  const level = asLevel(risk.level);
+
+  return {
+    executive_legal_summary: asStr(r.executive_legal_summary),
+    litigation_risk_assessment: {
+      level,
+      rationale: asStr(risk.rationale) || asStr(risk.reason),
+      key_risk_factors: toList(risk.key_risk_factors as string[] | undefined),
+    },
+    hearing_trend_analysis: {
+      pattern: asStr(hearing.pattern),
+      adjournment_concerns: asStr(hearing.adjournment_concerns),
+      observations: toList(hearing.observations as string[] | undefined),
+    },
+    department_impact_analysis: {
+      summary: asStr(dept.summary),
+      financial_exposure: asStr(dept.financial_exposure),
+      policy_or_operational_impact: asStr(dept.policy_or_operational_impact),
+    },
+    advocate_recommendations: toList(r.advocate_recommendations as string[] | undefined),
+    missing_information: toList(r.missing_information as string[] | undefined),
+    next_hearing_preparation_checklist: toList(r.next_hearing_preparation_checklist as string[] | undefined),
+    strategic_recommendations: toList(r.strategic_recommendations as string[] | undefined),
+    similar_case_risk_indicators: toList(r.similar_case_risk_indicators as string[] | undefined),
+    ai_action_plan: asActionPlan(r.ai_action_plan),
+    risk_assessment: {
+      level,
+      reason: asStr((r.risk_assessment as Record<string, unknown> | undefined)?.reason) || asStr(risk.rationale),
+    },
+    attention_required: Boolean(r.attention_required),
+    no_activity: Boolean(r.no_activity),
+    long_pending: Boolean(r.long_pending),
+    upcoming_hearing: Boolean(r.upcoming_hearing),
+  };
 }
 
 async function fetchCaseCache(caseId: string) {
@@ -295,7 +367,7 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
 
   useEffect(() => { void loadCached(); }, [loadCached]);
 
-  const analysis = useMemo(() => record?.ai_json ?? null, [record]);
+  const analysis = useMemo(() => normalizeAnalysis(record?.ai_json), [record]);
   const parsedOrders = useMemo<ParsedOrderRecord[]>(() => Array.isArray(record?.parsed_orders) ? record!.parsed_orders! : [], [record]);
 
   const generate = useCallback(async (refresh: boolean) => {
