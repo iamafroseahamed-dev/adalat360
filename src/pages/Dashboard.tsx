@@ -442,6 +442,10 @@ export default function DashboardPage() {
                       <tr className="border-b text-left text-xs text-muted-foreground">
                         <th className="px-3 py-2 font-medium">Advocate</th>
                         <th className="px-3 py-2 text-right font-medium">Cases</th>
+                        <th className="px-3 py-2 text-right font-medium">Ready</th>
+                        <th className="px-3 py-2 text-right font-medium">Pending Docs</th>
+                        <th className="px-3 py-2 text-right font-medium">Counter Pending</th>
+                        <th className="px-3 py-2 text-right font-medium">Compliance Pending</th>
                         <th className="px-3 py-2 text-right font-medium">Open</th>
                         <th className="px-3 py-2 text-right font-medium">Done</th>
                         <th className="px-3 py-2 text-right font-medium">Overdue</th>
@@ -454,6 +458,10 @@ export default function DashboardPage() {
                         <tr key={`${r.advocate}-${i}`} className="border-b last:border-0">
                           <td className="px-3 py-2">{r.advocate}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{r.assignedCases}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-emerald-600">{r.readyForHearing}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-orange-600">{r.documentsAwaited}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-amber-600">{r.counterPending}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums ${r.compliancePending > 0 ? 'font-semibold text-rose-600' : ''}`}>{r.compliancePending}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{r.openTasks}</td>
                           <td className="px-3 py-2 text-right tabular-nums text-emerald-600">{r.completedTasks}</td>
                           <td className={`px-3 py-2 text-right tabular-nums ${r.overdueTasks > 0 ? 'font-semibold text-red-600' : ''}`}>{r.overdueTasks}</td>
