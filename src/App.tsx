@@ -1,10 +1,23 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { AuthProvider } from '@/lib/auth';
 import { ProtectedRoute, PublicRoute } from '@/components/ProtectedRoute';
 import { Layout } from '@/components/Layout';
 import { Skeleton } from '@/components/ui/skeleton';
+
+// Analytics auto-refresh every 5 minutes without a page reload
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,
+      refetchInterval: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 // Route-level code splitting — each page is a separate chunk loaded on demand
 const Login          = lazy(() => import('@/pages/Login'));
@@ -28,32 +41,34 @@ function PageLoader() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
-            {/* Public */}
-            <Route element={<PublicRoute />}>
-              <Route path="/login" element={<Login />} />
-            </Route>
-
-            {/* Protected */}
-            <Route element={<ProtectedRoute />}>
-              <Route element={<Layout />}>
-                <Route path="/dashboard"       element={<Dashboard />} />
-                <Route path="/cases"           element={<Cases />} />
-                <Route path="/todays-listings" element={<TodaysListings />} />
-                <Route path="/upcoming-hearings" element={<UpcomingHearings />} />
-                <Route path="/settings"        element={<Settings />} />
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <BrowserRouter>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              {/* Public */}
+              <Route element={<PublicRoute />}>
+                <Route path="/login" element={<Login />} />
               </Route>
-            </Route>
 
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-      <Toaster richColors position="top-right" expand={true} duration={4000} />
-    </AuthProvider>
+              {/* Protected */}
+              <Route element={<ProtectedRoute />}>
+                <Route element={<Layout />}>
+                  <Route path="/dashboard"       element={<Dashboard />} />
+                  <Route path="/cases"           element={<Cases />} />
+                  <Route path="/todays-listings" element={<TodaysListings />} />
+                  <Route path="/upcoming-hearings" element={<UpcomingHearings />} />
+                  <Route path="/settings"        element={<Settings />} />
+                </Route>
+              </Route>
+
+              {/* Fallback */}
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+        <Toaster richColors position="top-right" expand={true} duration={4000} />
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }

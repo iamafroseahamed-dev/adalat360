@@ -1,87 +1,113 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Scale } from 'lucide-react';
+import { CaseDetailsModal } from '@/components/CaseDetailsModal';
 import type { Case } from '@/types';
 
 function isoToday(): string {
-  return new Date().toISOString().split('T')[0];
-}
-
-function isoInNDays(n: number): string {
   const d = new Date();
-  d.setDate(d.getDate() + n);
-  return d.toISOString().split('T')[0];
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '\u2014';
-  return new Date(iso).toLocaleDateString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// Days from today (>= 0 for future). Returns null when undatable.
+function daysUntil(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const target = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(target.getTime())) return null;
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target.getTime() - start.getTime()) / 86_400_000);
+}
+
+// Color coding: Today=red, ≤7d=orange, ≤30d=blue, future=grey
+function HearingDateBadge({ iso }: { iso: string | null | undefined }) {
+  const days = daysUntil(iso);
+  let cls = 'bg-gray-100 text-gray-700';
+  let tag = 'Future';
+  if (days !== null) {
+    if (days <= 0) { cls = 'bg-red-100 text-red-700'; tag = 'Today'; }
+    else if (days <= 7) { cls = 'bg-orange-100 text-orange-700'; tag = `In ${days}d`; }
+    else if (days <= 30) { cls = 'bg-blue-100 text-blue-700'; tag = `In ${days}d`; }
+    else { cls = 'bg-gray-100 text-gray-700'; tag = `In ${days}d`; }
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <span className="whitespace-nowrap">{fmtDate(iso)}</span>
+      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${cls}`}>{tag}</span>
+    </div>
+  );
 }
 
 export default function UpcomingHearingsPage() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [rows, setRows] = useState<Case[]>([]);
-
   const today = useMemo(() => isoToday(), []);
-  const in7 = useMemo(() => isoInNDays(7), []);
 
-  useEffect(() => {
-    async function fetchUpcomingHearings() {
-      setLoading(true);
-      setError(null);
-      try {
-        const { data, error: sbErr } = await supabase
-          .from('cases')
-          .select('id,case_number,petitioner,respondent,district,next_hearing_date,case_status')
-          .eq('active', true)
-          .gte('next_hearing_date', today)
-          .lte('next_hearing_date', in7)
-          .order('next_hearing_date', { ascending: true, nullsFirst: false });
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsNumber, setDetailsNumber] = useState<string | null>(null);
+  const [detailsId, setDetailsId] = useState<string | null>(null);
 
-        if (sbErr) throw sbErr;
-        setRows((data ?? []) as Case[]);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unable to load upcoming hearings.');
-      } finally {
-        setLoading(false);
-      }
-    }
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['upcoming-hearings', today],
+    queryFn: async (): Promise<Case[]> => {
+      const { data, error: sbErr } = await supabase
+        .from('cases')
+        .select('*')
+        .gte('next_hearing_date', today)
+        .order('next_hearing_date', { ascending: true, nullsFirst: false });
+      if (sbErr) throw new Error(sbErr.message);
+      return (data ?? []) as Case[];
+    },
+  });
 
-    void fetchUpcomingHearings();
-  }, [today, in7]);
+  const rows = data ?? [];
+
+  function openDetails(c: Case) {
+    setDetailsNumber(c.case_number);
+    setDetailsId(c.id);
+    setDetailsOpen(true);
+  }
 
   return (
     <div className="space-y-5 p-6">
       <div>
         <h1 className="text-xl font-semibold">Upcoming Hearings</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Read-only hearing calendar view for the next 7 days.
+          All cases with a next hearing date on or after today, soonest first.
         </p>
       </div>
 
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">
-            Hearings between {fmtDate(today)} and {fmtDate(in7)}
+            {isLoading ? 'Hearings' : `${rows.length} upcoming hearing${rows.length !== 1 ? 's' : ''}`}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          {loading ? (
+          {isLoading ? (
             <div className="space-y-2 p-4">
               {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10" />)}
             </div>
           ) : error ? (
-            <p className="px-4 py-8 text-center text-sm text-destructive">{error}</p>
+            <div className="px-4 py-8 text-center text-sm text-destructive">
+              {(error as Error).message}
+              <Button variant="ghost" size="sm" className="ml-2" onClick={() => refetch()}>Retry</Button>
+            </div>
           ) : rows.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-              No hearings in the next 7 days.
+              No upcoming hearings scheduled.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -89,11 +115,11 @@ export default function UpcomingHearingsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="whitespace-nowrap">Case Number</TableHead>
-                    <TableHead className="whitespace-nowrap">Petitioner</TableHead>
-                    <TableHead className="whitespace-nowrap">Respondent</TableHead>
+                    <TableHead className="whitespace-nowrap">Court</TableHead>
                     <TableHead className="whitespace-nowrap">District</TableHead>
                     <TableHead className="whitespace-nowrap">Next Hearing Date</TableHead>
                     <TableHead className="whitespace-nowrap">Case Status</TableHead>
+                    <TableHead className="whitespace-nowrap text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -102,15 +128,24 @@ export default function UpcomingHearingsPage() {
                       <TableCell className="whitespace-nowrap font-mono text-xs font-medium">
                         {c.case_number}
                       </TableCell>
-                      <TableCell className="max-w-[220px] truncate" title={c.petitioner ?? undefined}>
-                        {c.petitioner ?? '\u2014'}
-                      </TableCell>
-                      <TableCell className="max-w-[220px] truncate" title={c.respondent ?? undefined}>
-                        {c.respondent ?? '\u2014'}
+                      <TableCell className="max-w-[220px] truncate" title={c.court_name ?? undefined}>
+                        {c.court_name ?? '\u2014'}
                       </TableCell>
                       <TableCell className="whitespace-nowrap">{c.district ?? '\u2014'}</TableCell>
-                      <TableCell className="whitespace-nowrap">{fmtDate(c.next_hearing_date)}</TableCell>
+                      <TableCell><HearingDateBadge iso={c.next_hearing_date} /></TableCell>
                       <TableCell className="whitespace-nowrap">{c.case_status ?? '\u2014'}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 text-xs"
+                          disabled={!c.case_number}
+                          onClick={() => openDetails(c)}
+                        >
+                          <Scale className="h-3 w-3" />
+                          View Details
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -119,6 +154,14 @@ export default function UpcomingHearingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── eCourts Case Details Modal (fresh data, not DB) ── */}
+      <CaseDetailsModal
+        caseNumber={detailsNumber}
+        caseId={detailsId}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+      />
     </div>
   );
 }
