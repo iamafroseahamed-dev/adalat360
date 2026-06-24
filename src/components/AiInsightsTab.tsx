@@ -19,6 +19,33 @@ interface SearchResponse {
   message?: string;
 }
 
+interface AiAnalysisResponse {
+  success: boolean;
+  summary?: string | null;
+  analysis?: AiCaseAnalysisJson;
+  model?: string | null;
+  usage?: Record<string, unknown> | null;
+  generatedAt?: string | number | null;
+  message?: string;
+  detail?: string;
+  responsePreview?: string;
+  fallbackPreview?: string;
+}
+
+function buildAiErrorMessage(payload: AiAnalysisResponse | null | undefined): string {
+  if (!payload) return 'Unable to generate AI analysis.';
+  const parts = [payload.message, payload.detail]
+    .map(v => String(v || '').trim())
+    .filter(Boolean);
+
+  const primaryPreview = String(payload.responsePreview || '').trim();
+  const fallbackPreview = String(payload.fallbackPreview || '').trim();
+  if (primaryPreview) parts.push(`Primary response: ${primaryPreview}`);
+  if (fallbackPreview) parts.push(`Fallback response: ${fallbackPreview}`);
+
+  return parts.length > 0 ? parts.join(' | ') : 'Unable to generate AI analysis.';
+}
+
 function fmtDateTime(value: string | null | undefined): string {
   if (!value) return '\u2014';
   const d = new Date(value);
@@ -241,8 +268,8 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ caseId, caseNumber, context: payload.context }),
       });
-      const json = await resp.json();
-      if (!resp.ok || !json?.success) throw new Error(json?.message || 'Unable to generate AI analysis.');
+      const json = await resp.json() as AiAnalysisResponse;
+      if (!resp.ok || !json?.success) throw new Error(buildAiErrorMessage(json));
 
       const upsertPayload = {
         case_id: caseId,
