@@ -5,7 +5,7 @@ import {
   ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
   PieChart, Pie, Legend,
-  AreaChart, Area,
+  AreaChart, Area, LineChart, Line,
 } from 'recharts';
 import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,14 +14,15 @@ import { Button } from '@/components/ui/button';
 import {
   Briefcase, Clock, CheckCircle2, CalendarDays, CalendarClock, Gavel,
   ChevronLeft, ChevronRight, ListTodo, AlertTriangle, Link2,
+  MapPin, Users, Trophy, TrendingUp, Layers, Scale,
 } from 'lucide-react';
 import {
-  fetchDashboardKpis, fetchCasesByCourt, fetchCaseStatusBreakdown,
-  fetchCasesByDistrict, fetchCasesBySection, fetchDisposalOutcomes,
+  fetchCaseStatusBreakdown, fetchDisposalOutcomes,
   fetchHearingsByDate, fetchRecentListings, fetchMostConnectedCases,
+  fetchExecutiveAnalytics,
   type CategoryCount,
 } from '@/lib/dashboardQueries';
-import { taskPriorityClasses, taskStatusClasses } from '@/lib/caseManagement';
+import { TNLitigationHeatMap } from '@/components/TNLitigationHeatMap';
 import type { Case } from '@/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -227,58 +228,51 @@ function HearingCalendar({ counts }: { counts: Map<string, number> }) {
   );
 }
 
+// ── Small presentational helpers ───────────────────────────────────────────
+
+function ProgressBar({ pct, color = '#2563eb' }: { pct: number; color?: string }) {
+  const v = Math.max(0, Math.min(100, pct));
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+        <div className="h-full rounded-full" style={{ width: `${v}%`, backgroundColor: color }} />
+      </div>
+      <span className="w-9 shrink-0 text-right text-[11px] font-semibold tabular-nums">{v}%</span>
+    </div>
+  );
+}
+
+function pctColor(pct: number): string {
+  if (pct >= 75) return '#16a34a';
+  if (pct >= 50) return '#d97706';
+  return '#dc2626';
+}
+
+function statusPill(status: string | null | undefined): string {
+  const s = (status ?? '').toLowerCase();
+  if (s === 'disposed') return 'bg-emerald-100 text-emerald-700';
+  if (s === 'pending') return 'bg-amber-100 text-amber-700';
+  if (s === 'active') return 'bg-blue-100 text-blue-700';
+  return 'bg-slate-100 text-slate-600';
+}
+
 // ── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const navigate = useNavigate();
 
-  const kpis        = useQuery({ queryKey: ['dashboard-kpis'], queryFn: fetchDashboardKpis });
-  const byCourt     = useQuery({ queryKey: ['cases-by-court'], queryFn: fetchCasesByCourt });
+  const exec        = useQuery({ queryKey: ['executive-analytics'], queryFn: fetchExecutiveAnalytics });
   const statusMix   = useQuery({ queryKey: ['case-status-breakdown'], queryFn: fetchCaseStatusBreakdown });
-  const byDistrict  = useQuery({ queryKey: ['cases-by-district'], queryFn: fetchCasesByDistrict });
-  const bySection   = useQuery({ queryKey: ['cases-by-section'], queryFn: fetchCasesBySection });
   const disposal    = useQuery({ queryKey: ['disposal-outcomes'], queryFn: fetchDisposalOutcomes });
   const hearings    = useQuery({ queryKey: ['hearings-by-date'], queryFn: fetchHearingsByDate });
   const listings    = useQuery({ queryKey: ['recent-listings'], queryFn: fetchRecentListings });
   const mostConnected = useQuery({ queryKey: ['most-connected-cases'], queryFn: fetchMostConnectedCases });
 
-  // ── Task tracker widgets ──────────────────────────────────────────────────
-  const todayIso = isoLocal(new Date());
-  const tasksOpen = useQuery({
-    queryKey: ['tasks-open-count'],
-    queryFn: async () => {
-      const { count } = await supabase.from('case_tasks').select('*', { count: 'exact', head: true }).neq('task_status', 'Completed');
-      return count ?? 0;
-    },
-  });
-  const tasksDueToday = useQuery({
-    queryKey: ['tasks-due-today', todayIso],
-    queryFn: async () => {
-      const { count } = await supabase.from('case_tasks').select('*', { count: 'exact', head: true }).eq('due_date', todayIso);
-      return count ?? 0;
-    },
-  });
-  const tasksOverdue = useQuery({
-    queryKey: ['tasks-overdue', todayIso],
-    queryFn: async () => {
-      const { count } = await supabase.from('case_tasks').select('*', { count: 'exact', head: true }).lt('due_date', todayIso).neq('task_status', 'Completed');
-      return count ?? 0;
-    },
-  });
-  const openTaskList = useQuery({
-    queryKey: ['tasks-open-list'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('case_tasks')
-        .select('id, task_title, assigned_to_name, due_date, priority, task_status')
-        .neq('task_status', 'Completed')
-        .order('due_date', { ascending: true, nullsFirst: false })
-        .limit(10);
-      return (data ?? []) as Array<{ id: string; task_title: string; assigned_to_name: string | null; due_date: string | null; priority: string | null; task_status: string | null }>;
-    },
-  });
+  const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null);
 
-  const k = kpis.data;
+  const a = exec.data;
+  const kp = a?.kpis;
+  const drill = selectedDistrict ? a?.districtDetails[selectedDistrict] : undefined;
 
   const hearingCounts = useMemo(() => {
     const m = new Map<string, number>();
@@ -295,14 +289,11 @@ export default function DashboardPage() {
   const num = (rows: CategoryCount[] | undefined) =>
     (rows ?? []).map(r => ({ ...r, value: Number(r.value) }));
 
-  const courtData    = num(byCourt.data);
   const statusData   = num(statusMix.data);
-  const districtData = num(byDistrict.data);
-  const sectionData  = num(bySection.data);
   const disposalData = num(disposal.data);
+  const sectionData  = (a?.sections ?? []).map(s => ({ ...s, value: Number(s.value) }));
 
-  const anyError = kpis.error || byCourt.error || statusMix.error || byDistrict.error
-    || bySection.error || disposal.error || hearings.error || listings.error;
+  const anyError = exec.error || statusMix.error || disposal.error || hearings.error || listings.error;
 
   return (
     <div className="space-y-6 p-6">
