@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Briefcase, List,
-  CalendarDays, Settings, Scale, LogOut, ChevronLeft, ChevronRight, X, Menu, Info, Building2,
+  CalendarDays, Settings, Scale, LogOut, ChevronLeft, ChevronRight, X, Menu, Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
