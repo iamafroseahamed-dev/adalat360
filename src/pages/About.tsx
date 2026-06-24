@@ -298,7 +298,6 @@ export default function AboutPage() {
               Built and maintained with a focus on practical government litigation workflows,
               reliability and clean user experience.
             </p>
-          </div>
           </CardContent>
         </Card>
       </section>
