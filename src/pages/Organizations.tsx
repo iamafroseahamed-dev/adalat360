@@ -28,6 +28,10 @@ function fmtDateTime(iso: string | null | undefined): string {
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+function fmtMoney(v: number | null | undefined): string {
+  return `\u20b9${Number(v ?? 0).toFixed(2)}`;
+}
+
 async function fetchAllUsage(): Promise<EcourtsApiUsage[]> {
   try {
     const { data, error } = await supabase
@@ -105,9 +109,9 @@ export default function OrganizationsPage() {
     try {
       if (dialog.mode === 'credits') {
         const amt = Number(creditInput);
-        if (!Number.isFinite(amt) || amt === 0) { toast.error('Enter a valid credit amount.'); return; }
+        if (!Number.isFinite(amt) || amt === 0) { toast.error('Enter a valid balance amount.'); return; }
         await addCredits(dialog.org.id, amt);
-        toast.success(`${amt > 0 ? 'Added' : 'Removed'} ${Math.abs(amt)} credits.`);
+        toast.success(`${amt > 0 ? 'Added' : 'Deducted'} ₹${Math.abs(amt).toFixed(2)} balance.`);
       } else {
         await setPlan(dialog.org.id, planInput);
         toast.success(`Plan changed to ${planInput}.`);
@@ -155,8 +159,8 @@ export default function OrganizationsPage() {
                   <tr className="border-b text-left text-xs text-muted-foreground">
                     <th className="px-3 py-2 font-medium">Organization</th>
                     <th className="px-3 py-2 font-medium">Plan</th>
-                    <th className="px-3 py-2 text-right font-medium">Available Credits</th>
-                    <th className="px-3 py-2 text-right font-medium">Credits Consumed</th>
+                    <th className="px-3 py-2 text-right font-medium">Balance (₹)</th>
+                    <th className="px-3 py-2 text-right font-medium">Amount Charged (₹)</th>
                     <th className="px-3 py-2 text-right font-medium">Active Cases</th>
                     <th className="px-3 py-2 font-medium">Last Sync</th>
                     <th className="px-3 py-2 font-medium">Actions</th>
@@ -178,14 +182,14 @@ export default function OrganizationsPage() {
                         <td className="px-3 py-2">
                           <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">{org.plan_name ?? 'Trial'}</span>
                         </td>
-                        <td className={`px-3 py-2 text-right font-semibold tabular-nums ${avail <= 0 ? 'text-red-600' : 'text-emerald-600'}`}>{avail.toLocaleString('en-IN')}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{sum.creditsConsumed.toLocaleString('en-IN')}</td>
+                        <td className={`px-3 py-2 text-right font-semibold tabular-nums ${avail <= 0 ? 'text-red-600' : 'text-emerald-600'}`}>{fmtMoney(avail)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(sum.amountCharged)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{(caseCounts[org.id] ?? 0).toLocaleString('en-IN')}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{sum.lastSync ? fmtDateTime(sum.lastSync) : '\u2014'}</td>
                         <td className="px-3 py-2">
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => { setCreditInput('100'); setDialog({ mode: 'credits', org }); }}>
-                              <Plus className="h-3 w-3" /> Credits
+                              <Plus className="h-3 w-3" /> Balance
                             </Button>
                             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setPlanInput(org.plan_name ?? 'Standard'); setDialog({ mode: 'plan', org }); }}>
                               Plan
@@ -222,8 +226,8 @@ export default function OrganizationsPage() {
             <CardContent>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                 <Stat label="Plan" value={selected.plan_name ?? 'Trial'} />
-                <Stat label="Available Credits" value={Number(selected.available_credits ?? 0).toLocaleString('en-IN')} accent={Number(selected.available_credits ?? 0) <= 0 ? 'text-red-600' : 'text-emerald-600'} />
-                <Stat label="Credits Consumed" value={selectedSummary.creditsConsumed.toLocaleString('en-IN')} />
+                <Stat label="Balance (₹)" value={fmtMoney(selected.available_credits)} accent={Number(selected.available_credits ?? 0) <= 0 ? 'text-red-600' : 'text-emerald-600'} />
+                <Stat label="Amount Charged (₹)" value={fmtMoney(selectedSummary.amountCharged)} />
                 <Stat label="Cases Synced" value={selectedSummary.casesSynced.toLocaleString('en-IN')} />
                 <Stat label="API Calls" value={selectedSummary.apiCalls.toLocaleString('en-IN')} />
               </div>
@@ -245,7 +249,8 @@ export default function OrganizationsPage() {
                       <tr className="border-b text-left text-xs text-muted-foreground">
                         <th className="px-3 py-2 font-medium">Endpoint</th>
                         <th className="px-3 py-2 text-right font-medium">Calls</th>
-                        <th className="px-3 py-2 text-right font-medium">Credits Used</th>
+                        <th className="px-3 py-2 text-right font-medium">Rate Applied</th>
+                        <th className="px-3 py-2 text-right font-medium">Amount Charged</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -253,7 +258,8 @@ export default function OrganizationsPage() {
                         <tr key={e.endpoint} className="border-b last:border-0">
                           <td className="px-3 py-2 font-mono text-xs">{e.endpoint}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{e.calls}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{e.credits}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(e.rate)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(e.amountCharged)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -269,9 +275,9 @@ export default function OrganizationsPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-3 gap-3">
-                  <Stat label="Credits Used This Month" value={selectedSummary.creditsThisMonth.toLocaleString('en-IN')} />
-                  <Stat label="Estimated Cost" value={`\u20B9${selectedSummary.costThisMonth.toFixed(2)}`} />
-                  <Stat label="Remaining Credits" value={Number(selected.available_credits ?? 0).toLocaleString('en-IN')} accent={Number(selected.available_credits ?? 0) <= 0 ? 'text-red-600' : 'text-emerald-600'} />
+                  <Stat label="Charged This Month (₹)" value={fmtMoney(selectedSummary.amountThisMonth)} />
+                  <Stat label="Total Charged (₹)" value={fmtMoney(selectedSummary.amountCharged)} />
+                  <Stat label="Remaining Balance (₹)" value={fmtMoney(selected.available_credits)} accent={Number(selected.available_credits ?? 0) <= 0 ? 'text-red-600' : 'text-emerald-600'} />
                 </div>
               </CardContent>
             </Card>
@@ -293,7 +299,7 @@ export default function OrganizationsPage() {
                         <th className="px-3 py-2 font-medium">Date</th>
                         <th className="px-3 py-2 font-medium">Endpoint</th>
                         <th className="px-3 py-2 font-medium">CNR</th>
-                        <th className="px-3 py-2 text-right font-medium">Credits</th>
+                        <th className="px-3 py-2 text-right font-medium">Amount (₹)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -302,7 +308,7 @@ export default function OrganizationsPage() {
                           <td className="whitespace-nowrap px-3 py-2 text-xs">{fmtDateTime(l.created_at)}</td>
                           <td className="px-3 py-2 font-mono text-xs">{l.endpoint_name ?? '\u2014'}</td>
                           <td className="px-3 py-2 font-mono text-xs">{l.cnr_number ?? '\u2014'}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{Number(l.credits_used ?? 0)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(l.credits_used)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -318,12 +324,12 @@ export default function OrganizationsPage() {
       <Dialog open={!!dialog} onOpenChange={o => { if (!o) setDialog(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{dialog?.mode === 'credits' ? 'Add Credits' : 'Change Plan'}</DialogTitle>
+            <DialogTitle>{dialog?.mode === 'credits' ? 'Add Balance (₹)' : 'Change Plan'}</DialogTitle>
             <DialogDescription>{dialog?.org.organization_name}</DialogDescription>
           </DialogHeader>
           {dialog?.mode === 'credits' ? (
             <div className="space-y-2">
-              <Label htmlFor="credit-amt">Credits to add (use a negative number to remove)</Label>
+              <Label htmlFor="credit-amt">Balance to add in ₹ (use a negative number to deduct)</Label>
               <Input id="credit-amt" type="number" value={creditInput} onChange={e => setCreditInput(e.target.value)} />
             </div>
           ) : (
