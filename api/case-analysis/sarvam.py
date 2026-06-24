@@ -155,11 +155,17 @@ _RESPONSE_SCHEMA: Dict[str, Any] = {
 
 
 def _summary_text(analysis: Dict[str, Any]) -> str:
+    if not isinstance(analysis, dict):
+        return str(analysis or '').strip()
     risk = ((analysis.get('risk_assessment') or {}).get('level') or 'Unknown').strip()
     about = ((analysis.get('executive_summary') or {}).get('case_about') or '').strip()
     dispute = ((analysis.get('executive_summary') or {}).get('key_dispute') or '').strip()
     stage = ((analysis.get('case_status') or {}).get('current_stage') or '').strip()
     return ' '.join(x for x in [about, dispute and f'Key dispute: {dispute}.', stage and f'Current stage: {stage}.', f'Risk: {risk}.'] if x).strip()
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _try_parse_json_text(text: str) -> Dict[str, Any] | None:
@@ -189,9 +195,44 @@ def _try_parse_json_text(text: str) -> Dict[str, Any] | None:
 
 
 def _extract_analysis(result: Dict[str, Any]) -> Dict[str, Any]:
-    message = ((result.get('choices') or [{}])[0].get('message') or {})
+    if isinstance(result, str):
+        parsed_direct = _try_parse_json_text(result)
+        if parsed_direct is not None:
+            return parsed_direct
+        raise ValueError('Sarvam returned a string payload that is not parseable JSON')
+
+    if not isinstance(result, dict):
+        raise ValueError(f'Unexpected Sarvam payload type: {type(result).__name__}')
+
+    # Some providers may return the analysis object directly rather than OpenAI-style choices.
+    if 'choices' not in result:
+        direct = _try_parse_json_text(json.dumps(result))
+        if direct is not None:
+            return direct
+
+    choices = result.get('choices')
+    if isinstance(choices, list) and choices:
+        first_choice = choices[0]
+        if isinstance(first_choice, str):
+            parsed_choice = _try_parse_json_text(first_choice)
+            if parsed_choice is not None:
+                return parsed_choice
+            raise ValueError('First choice is a string but not parseable JSON')
+        message = _as_dict(_as_dict(first_choice).get('message'))
+    else:
+        message = {}
 
     content = message.get('content')
+    if isinstance(content, dict):
+        return content
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                text_value = item.get('text') or item.get('content') or item.get('value')
+                if isinstance(text_value, str):
+                    parsed = _try_parse_json_text(text_value)
+                    if parsed is not None:
+                        return parsed
     if isinstance(content, str):
         parsed = _try_parse_json_text(content)
         if parsed is not None:
@@ -314,7 +355,8 @@ class handler(BaseHTTPRequestHandler):
         if resp.status_code == 403:
             msg = 'Sarvam AI authentication failed. Check SARVAM_API_KEY.'
             try:
-                err = resp.json().get('error', {})
+                err_payload = resp.json()
+                err = _as_dict(err_payload).get('error', {})
                 if isinstance(err, dict):
                     msg = str(err.get('message') or msg)
             except Exception:
