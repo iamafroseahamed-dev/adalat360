@@ -738,6 +738,21 @@ export default function CasesPage() {
 
   return (
     <div className="space-y-4">
+      {!orgId && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-800">
+          No organization assigned to your account.
+        </div>
+      )}
+      {orgId && unassignedCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+          <span>{unassignedCount} case{unassignedCount !== 1 ? 's are' : ' is'} not yet assigned to an organization (still shown below).</span>
+          {isAdmin && (
+            <Button size="sm" variant="outline" className="h-8" disabled={bulkAssigning} onClick={bulkAssignUnassigned}>
+              {bulkAssigning ? 'Assigning…' : `Assign to ${org?.short_name ?? org?.organization_name ?? 'organization'}`}
+            </Button>
+          )}
+        </div>
+      )}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <div className="relative flex-1 sm:max-w-sm">
@@ -894,6 +909,8 @@ export default function CasesPage() {
               <p className="text-sm font-medium">No cases found</p>
               <p className="text-xs mt-1">Add your first case or upload case data.</p>
             </div>
+          ) : orgId && orgScoped.length === 0 ? (
+            <div className="py-20 text-center text-sm text-muted-foreground">No cases found for your organization.</div>
           ) : filtered.length === 0 ? (
             <div className="py-20 text-center text-sm text-muted-foreground">No cases match your current filters.</div>
           ) : (
