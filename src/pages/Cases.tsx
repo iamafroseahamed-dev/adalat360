@@ -746,6 +746,11 @@ export default function CasesPage() {
               const ws = XLSX.utils.json_to_sheet(rows);
               const wb = XLSX.utils.book_new();
               XLSX.utils.book_append_sheet(wb, ws, 'Cases');
+              XLSX.utils.sheet_add_aoa(ws, [
+                [],
+                [`Developed by ${DEVELOPER_NAME}`],
+                [DEVELOPER_EMAIL],
+              ], { origin: -1 });
               XLSX.writeFile(wb, `cases_export_${new Date().toISOString().split('T')[0]}.xlsx`);
             }}>
               <Download className="w-4 h-4" /> Export Excel
