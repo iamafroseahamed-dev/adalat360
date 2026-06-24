@@ -1,15 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Eye, Link2, Loader2, Plus, Trash2 } from 'lucide-react';
+import { Eye, Link2, Loader2, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { AddConnectionDialog } from '@/components/AddConnectionDialog';
 import { addConnection, loadConnections, removeConnection } from '@/lib/connections';
 import { fmtDate } from '@/lib/caseManagement';
 import type { ConnectedCaseRow } from '@/types';
 import type { CaseSearchResult } from '@/lib/connections';
+
+// Reject if the underlying promise has not settled within `ms` so the spinner
+// can never run forever (e.g. a hung network request).
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Request timed out after 10s')), ms)),
+  ]);
+}
 
 export function CaseConnectionsTab({
   caseId, onOpenCase, onCountChange,
@@ -20,22 +29,35 @@ export function CaseConnectionsTab({
 }) {
   const [rows, setRows] = useState<ConnectedCaseRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // The host passes a fresh `onCountChange` on every render; keep it in a ref so
+  // `load` stays stable and the effect doesn't re-fire in an infinite loop
+  // (which kept the spinner running forever).
+  const onCountChangeRef = useRef(onCountChange);
+  onCountChangeRef.current = onCountChange;
+
   const load = useCallback(async () => {
     if (!caseId) return;
+    console.log('[ConnectedCases] loading for caseId:', caseId);
     setLoading(true);
+    setError(false);
     try {
-      const data = await loadConnections(caseId);
+      const data = await withTimeout(loadConnections(caseId), 10000);
+      console.log('[ConnectedCases] result count:', data.length, 'payload:', data);
       setRows(data);
-      onCountChange?.(data.length);
+      onCountChangeRef.current?.(data.length);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to load connected cases.');
+      console.error('[ConnectedCases] error loading connected cases:', e);
+      setError(true);
+      setRows([]);
+      toast.error('Unable to load connected cases.');
     } finally {
       setLoading(false);
     }
-  }, [caseId, onCountChange]);
+  }, [caseId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -80,9 +102,14 @@ export function CaseConnectionsTab({
         <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading connected cases…
         </div>
+      ) : error ? (
+        <div className="flex flex-col items-center gap-2 py-10 text-sm text-muted-foreground">
+          <AlertTriangle className="h-5 w-5 text-red-500" /> Unable to load connected cases.
+          <Button size="sm" variant="outline" className="mt-1" onClick={() => load()}>Retry</Button>
+        </div>
       ) : rows.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-10 text-sm text-muted-foreground">
-          <Link2 className="h-5 w-5" /> No connected cases yet.
+          <Link2 className="h-5 w-5" /> No connected cases found.
         </div>
       ) : (
         <div className="overflow-x-auto rounded-md border">

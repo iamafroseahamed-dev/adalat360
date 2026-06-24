@@ -851,7 +851,7 @@ export function CaseDetailsModal({
             <CaseConnectionsTab
               caseId={caseId}
               onOpenCase={(id, number) => setViewCase({ id, number })}
-              onCountChange={n => setSummary(s => (s ? { ...s, connections: n } : s))}
+              onCountChange={n => setSummary(s => (s && s.connections !== n ? { ...s, connections: n } : s))}
             />
           </TabsContent>
 
