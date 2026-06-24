@@ -121,6 +121,11 @@ export interface ExecKpis {
   upcomingHearings30: number;
   openTasks: number;
   overdueTasks: number;
+  // Advocate (internal) activity status counts
+  readyForHearing: number;
+  counterPending: number;
+  documentsAwaited: number;
+  compliancePending: number;
 }
 
 export interface DistrictLitigation {
@@ -139,6 +144,9 @@ export interface DistrictDetail {
   advocates: number;
   openTasks: number;
   overdueTasks: number;
+  readyForHearing: number;
+  counterPending: number;
+  documentsAwaited: number;
 }
 
 export interface AdvocatePerformance {
@@ -151,6 +159,10 @@ export interface AdvocatePerformance {
   hearingsThisMonth: number;
   closedCases: number;
   completionPct: number;
+  readyForHearing: number;
+  documentsAwaited: number;
+  counterPending: number;
+  compliancePending: number;
 }
 
 export interface SectionAdvocateRow {
@@ -210,6 +222,7 @@ export interface ExecutiveAnalytics {
   connectedTotal: number;
   causeList: CauseListAnalytics;
   trend: TrendPoint[];
+  advocateStatusDistribution: CategoryCount[];
 }
 
 interface CaseRow {
@@ -218,6 +231,7 @@ interface CaseRow {
   district: string | null;
   section: string | null;
   case_status: string | null;
+  advocate_status: string | null;
   next_hearing_date: string | null;
   assigned_advocate_name: string | null;
   created_at: string | null;
@@ -262,7 +276,7 @@ function topN(map: Map<string, number>, n: number): CategoryCount[] {
 export async function fetchExecutiveAnalytics(): Promise<ExecutiveAnalytics> {
   const [casesRes, tasksRes, listingsRes, connRes] = await Promise.all([
     supabase.from('cases')
-      .select('id, case_number, district, section, case_status, next_hearing_date, assigned_advocate_name, created_at')
+      .select('id, case_number, district, section, case_status, advocate_status, next_hearing_date, assigned_advocate_name, created_at')
       .range(0, PAGE),
     supabase.from('case_tasks')
       .select('id, case_id, task_title, task_status, due_date, assigned_to_name, created_at, completed_at')
