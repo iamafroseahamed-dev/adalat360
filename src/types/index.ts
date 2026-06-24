@@ -345,6 +345,17 @@ export interface CaseNote {
 
 export type TaskStatus = 'Open' | 'In Progress' | 'Waiting' | 'Completed' | 'Cancelled';
 export type TaskPriority = 'Low' | 'Medium' | 'High' | 'Critical';
+export type EmailNotificationStatus = 'Pending' | 'Sent' | 'Failed' | 'Skipped';
+
+export interface Advocate {
+  id: string;
+  advocate_name: string;
+  email: string | null;
+  mobile: string | null;
+  designation: string | null;
+  active: boolean;
+  created_at: string;
+}
 
 export interface CaseTask {
   id: string;
@@ -355,9 +366,13 @@ export interface CaseTask {
   assigned_to_email: string | null;
   assigned_to_mobile: string | null;
   due_date: string | null;
+  related_hearing_date: string | null;
   task_status: TaskStatus;
   priority: TaskPriority;
   created_by: string | null;
   created_at: string;
   completed_at: string | null;
+  email_notification_sent: boolean | null;
+  email_notification_sent_at: string | null;
+  email_notification_status: EmailNotificationStatus | null;
 }

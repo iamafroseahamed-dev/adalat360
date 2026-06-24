@@ -63,3 +63,42 @@ create policy case_tasks_all on public.case_tasks
 
 grant select, insert, update, delete on public.case_notes to anon, authenticated;
 grant select, insert, update, delete on public.case_tasks to anon, authenticated;
+
+-- 4. Advocate master ──────────────────────────────────────────────────────────
+create table if not exists public.advocates (
+  id            uuid primary key default gen_random_uuid(),
+  advocate_name text not null,
+  email         text,
+  mobile        text,
+  designation   text,
+  active        boolean default true,
+  created_at    timestamptz default now()
+);
+
+create index if not exists advocates_active_idx on public.advocates(active);
+
+alter table public.advocates enable row level security;
+
+drop policy if exists advocates_all on public.advocates;
+create policy advocates_all on public.advocates
+  for all to anon, authenticated using (true) with check (true);
+
+grant select, insert, update, delete on public.advocates to anon, authenticated;
+
+-- Seed the advocate master from existing active notification recipients (one-off,
+-- skips rows already present by email). Safe to re-run.
+insert into public.advocates (advocate_name, email, mobile, designation, active)
+select r.name, r.email, r.mobile_number, 'Advocate', true
+from public.system_notification_recipients r
+where r.active = true
+  and coalesce(r.email, '') <> ''
+  and not exists (
+    select 1 from public.advocates a where lower(a.email) = lower(r.email)
+  );
+
+-- 5. Task email-notification + related hearing tracking ───────────────────────
+alter table public.case_tasks
+  add column if not exists related_hearing_date        date,
+  add column if not exists email_notification_sent     boolean default false,
+  add column if not exists email_notification_sent_at  timestamptz,
+  add column if not exists email_notification_status   text default 'Pending'; -- Pending | Sent | Failed | Skipped
