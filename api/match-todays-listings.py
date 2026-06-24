@@ -545,7 +545,7 @@ def _send_email(to: str, subject: str, body: str) -> Dict[str, Any]:
     """Send email via MailerSend."""
     api_key   = os.environ.get('MAILERSEND_API_KEY', '')
     from_addr = os.environ.get('EMAIL_FROM', 'notifications@litigo.in')
-    from_name = os.environ.get('EMAIL_FROM_NAME', 'Litigo')
+    from_name = os.environ.get('EMAIL_FROM_NAME', 'Adalat360')
     if not api_key:
         return {'ok': False, 'error': 'MAILERSEND_API_KEY not set'}
     try:

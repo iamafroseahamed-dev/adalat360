@@ -1,5 +1,5 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Litigo — Connected / linked cases
+-- Adalat360 — Connected / linked cases
 --
 --   1. `case_connections` — many-to-many mapping between related cases
 --   2. `cases.parent_case_id` — optional parent → child matter linkage

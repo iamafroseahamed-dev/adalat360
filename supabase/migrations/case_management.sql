@@ -1,5 +1,5 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Litigo — Case Assignment & Task Management module
+-- Adalat360 — Case Assignment & Task Management module
 --
 --   1. Case assignment columns on `cases`
 --   2. `case_notes`  — per-case notes timeline

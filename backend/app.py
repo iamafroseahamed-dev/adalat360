@@ -218,7 +218,7 @@ def _auto_solve_captcha_hc() -> Tuple[requests.Session, str]:
 # Suppress SSL warnings for MHC government site (certificate chain issues)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-app = FastAPI(title='Litigo API Backend')
+app = FastAPI(title='Adalat360 API Backend')
 
 app.add_middleware(
     CORSMiddleware,
@@ -1466,7 +1466,7 @@ def _sb_post(path: str, payload: Any) -> Any:
 def _send_email_resend(to_email: str, subject: str, body: str) -> Dict[str, Any]:
     """Send email via Resend. Returns {ok, error}."""
     resend_key = os.environ.get('RESEND_API_KEY', '')
-    from_addr = os.environ.get('RESEND_FROM', 'Litigo <notifications@litigo.in>')
+    from_addr = os.environ.get('RESEND_FROM', 'Adalat360 <notifications@litigo.in>')
     if not resend_key:
         return {'ok': False, 'error': 'RESEND_API_KEY not configured.'}
     try:
