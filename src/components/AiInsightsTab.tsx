@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { getEcourtsCaseType } from '@/config/ecourtsCaseTypes';
@@ -380,17 +382,20 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-4 py-3">
-        <div>
-          <p className="text-sm font-medium">AI Case Analysis</p>
-          <p className="text-xs text-muted-foreground">
-            {record ? `AI Analysis generated on ${fmtDateTime(record.generated_at)}` : 'Generate a structured legal summary from cached case details and internal notes.'}
-          </p>
-          {record && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Last Viewed: {fmtDateTime(record.last_accessed_at)}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-blue-50 to-white px-4 py-4">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-sm">
+            <Sparkles className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-indigo-950">Legal Intelligence Workspace</p>
+            <p className="text-xs text-muted-foreground">
+              {record ? `Generated ${fmtDateTime(record.generated_at)}` : 'AI-generated senior-advocate analysis from cached case details, orders and notes.'}
             </p>
-          )}
+            {record && (
+              <p className="mt-0.5 text-xs text-muted-foreground">Last viewed: {fmtDateTime(record.last_accessed_at)}</p>
+            )}
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {!record ? (
@@ -407,28 +412,34 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
         </div>
       </div>
 
-      {loading && (
-        <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading AI analysis…
+      {(loading || generating) && (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Skeleton className="h-40 lg:col-span-2" />
+          <Skeleton className="h-40" />
+          <Skeleton className="h-32 lg:col-span-3" />
         </div>
       )}
 
-      {!loading && error && (
+      {!loading && !generating && error && (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       )}
 
-      {!loading && !error && staleAnalysis && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      {!loading && !generating && !error && staleAnalysis && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
           Case data changed since last AI analysis. Refresh recommended.
         </div>
       )}
 
-      {!loading && !analysis && !error && (
-        <div className="rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-          No cached AI analysis available yet.
-        </div>
+      {!loading && !generating && !analysis && !error && (
+        <EmptyState
+          icon={Sparkles}
+          title="No AI analysis yet"
+          description="Generate a senior-advocate style legal analysis with risk assessment, hearing trends and an action plan. Runs only when you click."
+          action={<Button size="sm" className="gap-1" disabled={generating} onClick={() => void generate(false)}><Sparkles className="h-4 w-4" />Generate AI Analysis</Button>}
+        />
       )}
 
       {analysis && (

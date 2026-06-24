@@ -41,21 +41,23 @@ function KpiCard({
   danger?: boolean;
 }) {
   const body = (
-    <Card className={`${onClick ? 'h-full transition-colors hover:bg-muted/40' : 'h-full'} ${danger && value > 0 ? 'border-red-300 bg-red-50/40' : ''}`}>
+    <Card className={`${onClick ? 'h-full hover:-translate-y-0.5 hover:shadow-card-hover' : 'h-full'} ${danger && value > 0 ? 'border-red-300 bg-red-50/40' : ''}`}>
       <CardContent className="p-5">
         <div className="flex items-start justify-between">
           <p className="text-sm font-medium text-muted-foreground">{label}</p>
-          <Icon className={`h-4 w-4 ${accent}`} />
+          <span className={`flex h-8 w-8 items-center justify-center rounded-lg bg-muted/60 ${accent}`}>
+            <Icon className="h-4 w-4" />
+          </span>
         </div>
         {loading
-          ? <Skeleton className="mt-2 h-8 w-16" />
-          : <p className={`mt-1 text-3xl font-bold ${accent}`}>{value.toLocaleString('en-IN')}</p>}
+          ? <Skeleton className="mt-3 h-8 w-16" />
+          : <p className={`mt-2 text-3xl font-bold tabular-nums ${accent}`}>{value.toLocaleString('en-IN')}</p>}
       </CardContent>
     </Card>
   );
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className="text-left" aria-label={label}>
+      <button type="button" onClick={onClick} className="block w-full text-left transition-transform" aria-label={label}>
         {body}
       </button>
     );
@@ -112,9 +114,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Welcome to Adalat360</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-xl font-semibold sm:text-2xl">Welcome to Adalat360</h1>
+        <p className="text-sm text-muted-foreground">
           Actionable litigation insight — which cases need attention, which hearings are coming, who owns each case.
         </p>
       </div>

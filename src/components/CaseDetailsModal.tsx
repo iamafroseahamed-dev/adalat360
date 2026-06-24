@@ -7,7 +7,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { DownloadCloud, Loader2, RefreshCw } from 'lucide-react';
+import { DownloadCloud, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CaseNotesTab } from '@/components/CaseNotesTab';
 import { CaseTasksTab } from '@/components/CaseTasksTab';
@@ -687,11 +687,14 @@ export function CaseDetailsModal({
         )}
 
         <Tabs value={tab} onValueChange={setTab} className="mt-1">
-          <TabsList>
+          <TabsList className="sticky top-0 z-10 flex w-full justify-start gap-1 overflow-x-auto rounded-lg">
             <TabsTrigger value="overview">Case Information</TabsTrigger>
             <TabsTrigger value="ecourts">Hearing History</TabsTrigger>
             <TabsTrigger value="history">Case History</TabsTrigger>
-            <TabsTrigger value="ai">AI Insights</TabsTrigger>
+            <TabsTrigger value="ai" className="gap-1.5 data-[state=active]:text-indigo-700">
+              <Sparkles className="h-3.5 w-3.5" />
+              AI Insights
+            </TabsTrigger>
             <TabsTrigger value="notes">Notes</TabsTrigger>
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
             <TabsTrigger value="connected">Connected Cases</TabsTrigger>

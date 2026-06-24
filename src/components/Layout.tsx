@@ -78,7 +78,7 @@ function Sidebar({
 
         {/* Logo */}
         <div className={cn('flex items-center gap-3 border-b border-sidebar-border px-4 py-5', collapsed && 'justify-center')}>
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-blue-500">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 shadow-sm shadow-blue-900/40">
             <Scale className="h-5 w-5 text-white" />
           </div>
           {!collapsed && (
@@ -98,8 +98,9 @@ function Sidebar({
                 key={to}
                 to={to}
                 onClick={onMobileClose}
+                aria-current={isActive ? 'page' : undefined}
                 className={cn(
-                  'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
+                  'group relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
                   isActive
                     ? 'bg-sidebar-accent text-white'
                     : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
@@ -107,7 +108,10 @@ function Sidebar({
                 )}
                 title={collapsed ? label : undefined}
               >
-                <Icon className="h-4 w-4 flex-shrink-0" />
+                {isActive && (
+                  <span className="absolute inset-y-1.5 left-0 w-1 rounded-r-full bg-blue-400" aria-hidden="true" />
+                )}
+                <Icon className={cn('h-4 w-4 flex-shrink-0 transition-transform group-hover:scale-110', isActive && 'text-blue-300')} />
                 {!collapsed && <span>{label}</span>}
               </NavLink>
             );
@@ -156,7 +160,7 @@ function Sidebar({
 function Header({ title, onMenuClick }: { title: string; onMenuClick: () => void }) {
   const { user } = useAuth();
   return (
-    <header className="flex items-center justify-between gap-3 border-b bg-white px-3 py-3 sm:px-4 lg:px-6">
+    <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b bg-white/90 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-white/75 sm:px-4 lg:px-6">
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <Button
           type="button"

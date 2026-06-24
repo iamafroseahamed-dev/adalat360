@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -19,7 +21,7 @@ import {
   DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { Plus, Search, Edit2, Eye, ExternalLink, FileText, Filter, Loader2, X, PowerOff, RefreshCw, Download, Scale, UserPlus, ListPlus, Link2, Trash2, MoreHorizontal, StickyNote } from 'lucide-react';
+import { Plus, Search, Edit2, Eye, ExternalLink, FileText, Filter, Loader2, X, PowerOff, RefreshCw, Download, Scale, UserPlus, ListPlus, Link2, Trash2, MoreHorizontal, StickyNote, Briefcase } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { CaseDetailsModal } from '@/components/CaseDetailsModal';
 import { TaskFormDialog } from '@/components/TaskFormDialog';
@@ -916,24 +918,43 @@ export default function CasesPage() {
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           {loading ? (
-            <div className="flex justify-center items-center py-20">
-              <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <div className="space-y-2 p-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4">
+                  <Skeleton className="h-5 w-28" />
+                  <Skeleton className="h-5 w-24" />
+                  <Skeleton className="h-5 flex-1" />
+                  <Skeleton className="h-5 w-24" />
+                  <Skeleton className="h-5 w-20" />
+                </div>
+              ))}
             </div>
           ) : error ? (
-            <div className="py-20 text-center text-sm text-destructive">
-              <p className="font-medium">Failed to load cases</p>
-              <p className="text-xs mt-1 text-muted-foreground">{error}</p>
-              <Button variant="outline" size="sm" className="mt-4" onClick={load}>Retry</Button>
-            </div>
+            <EmptyState
+              icon={RefreshCw}
+              title="Failed to load cases"
+              description={error}
+              action={<Button variant="outline" size="sm" onClick={load}>Retry</Button>}
+              className="m-4 border-destructive/30"
+            />
           ) : cases.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-              <p className="text-sm font-medium">No cases found</p>
-              <p className="text-xs mt-1">Add your first case or upload case data.</p>
-            </div>
+            <EmptyState
+              icon={Briefcase}
+              title="No cases yet"
+              description="Add your first case or upload case data to get started."
+              action={<Button size="sm" onClick={() => { setSelected(null); setDialogMode('add'); }}><Plus className="mr-1.5 h-4 w-4" />Add Case</Button>}
+              className="m-4"
+            />
           ) : orgId && orgScoped.length === 0 ? (
-            <div className="py-20 text-center text-sm text-muted-foreground">No cases found for your organization.</div>
+            <EmptyState icon={Briefcase} title="No cases for your organization" description="Cases assigned to your organization will appear here." className="m-4" />
           ) : filtered.length === 0 ? (
-            <div className="py-20 text-center text-sm text-muted-foreground">No cases match your current filters.</div>
+            <EmptyState
+              icon={Filter}
+              title="No matching cases"
+              description="No cases match your current search and filters."
+              action={<Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>}
+              className="m-4"
+            />
           ) : (
             <Table className="min-w-[1580px]">
               <TableHeader>
