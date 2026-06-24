@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Plus, Edit2, Trash2, Bell } from 'lucide-react';
+import { useAuth } from '@/lib/auth';
+import { Plus, Edit2, Trash2, Bell, Building2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,7 @@ interface Recipient {
   notify_sms: boolean;
   notify_whatsapp: boolean;
   active: boolean;
+  organization_id: string | null;
   created_at: string;
 }
 
@@ -35,6 +37,10 @@ const EMPTY: Omit<Recipient, 'id' | 'created_at'> = {
 };
 
 export default function Settings() {
+  const { user } = useAuth();
+  const orgId       = user?.profile?.organization_id ?? null;
+  const isSuperAdmin = user?.profile?.role === 'super_admin';
+
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [loading, setLoading]       = useState(true);
   const [dialog, setDialog]         = useState<'add' | 'edit' | null>(null);
@@ -45,13 +51,20 @@ export default function Settings() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+    let query = supabase
       .from('system_notification_recipients')
       .select('*')
       .order('created_at', { ascending: true });
+
+    // Super admins see all organisations; everyone else sees only their own.
+    if (!isSuperAdmin && orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+
+    const { data } = await query;
     setRecipients((data ?? []) as Recipient[]);
     setLoading(false);
-  }, []);
+  }, [isSuperAdmin, orgId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -83,7 +96,9 @@ export default function Settings() {
         updated_at: new Date().toISOString(),
       };
       if (dialog === 'add') {
-        const { error } = await supabase.from('system_notification_recipients').insert(payload);
+        // Automatically scope new recipients to the current user's organisation.
+        const insertPayload = { ...payload, organization_id: orgId };
+        const { error } = await supabase.from('system_notification_recipients').insert(insertPayload);
         if (error) throw error;
         toast.success('Recipient added.');
       } else if (selected) {
@@ -152,7 +167,14 @@ export default function Settings() {
             whenever a new case match is detected.
           </p>
 
-          {loading && <p className="text-sm text-muted-foreground py-2">Loading\u2026</p>}
+          {isSuperAdmin && (
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-3 flex items-center gap-1.5">
+              <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
+              Super-admin view — showing recipients across all organisations.
+            </p>
+          )}
+
+          {loading && <p className="text-sm text-muted-foreground py-2">Loading…</p>}
 
           {!loading && recipients.length === 0 && (
             <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -171,6 +193,7 @@ export default function Settings() {
                     <TableHead>Mobile</TableHead>
                     <TableHead className="text-center">Channels</TableHead>
                     <TableHead className="text-center">Status</TableHead>
+                    {isSuperAdmin && <TableHead>Organisation</TableHead>}
                     <TableHead />
                   </TableRow>
                 </TableHeader>
@@ -198,6 +221,13 @@ export default function Settings() {
                             : <Badge variant="secondary">Inactive</Badge>}
                         </button>
                       </TableCell>
+                      {isSuperAdmin && (
+                        <TableCell className="text-xs text-muted-foreground">
+                          {r.organization_id
+                            ? <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3" />{r.organization_id.slice(0, 8)}…</span>
+                            : <span className="text-muted-foreground/50">—</span>}
+                        </TableCell>
+                      )}
                       <TableCell>
                         <div className="flex gap-1 justify-end">
                           <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(r)}>

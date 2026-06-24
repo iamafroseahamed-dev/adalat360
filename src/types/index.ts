@@ -38,7 +38,7 @@ export interface Profile {
   organization_id: string;
   full_name: string;
   email: string;
-  role: 'admin' | 'advocate' | 'user';
+  role: 'admin' | 'advocate' | 'user' | 'super_admin';
   active: boolean;
   created_at: string;
   organization?: Organization;

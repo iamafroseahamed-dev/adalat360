@@ -59,7 +59,7 @@ BASE_COLS = frozenset({
     'case_number', 'cnr_number', 'court_hall', 'item_number',
     'judge_name', 'stage', 'petitioner', 'respondent',
     'match_type', 'match_status', 'notification_status',
-    'cnr_status',
+    'cnr_status', 'organization_id',
 })
 
 
@@ -633,14 +633,17 @@ def _send_whatsapp_twilio(to: str, body: str) -> Dict[str, Any]:
 def _notify_listings(listed_date: str) -> None:
     """
     Send notifications for all today_matched_listings where notification_status = 'pending'.
-    Called after a successful upsert.  Never raises \u2014 notification failures must not
+    Notifications are organisation-scoped: each listing is matched against recipients that
+    share the same organization_id as the case.  Listings with no organization_id fall back
+    to recipients that also have no organization_id (legacy / unscoped rows).
+    Called after a successful upsert.  Never raises — notification failures must not
     break the matching job.
     """
     try:
-        # Get pending listings for today
+        # Get pending listings for today, including organization_id for org-scoping.
         pending = _get_all('today_matched_listings', {
             'select': ('id,case_number,cnr_number,listed_date,court_hall,'
-                       'item_number,judge_name,petitioner,respondent,stage'),
+                       'item_number,judge_name,petitioner,respondent,stage,organization_id'),
             'listed_date':         f'eq.{listed_date}',
             'notification_status': 'eq.pending',
         })
@@ -648,139 +651,157 @@ def _notify_listings(listed_date: str) -> None:
             print(f'[notify] No pending listings for {listed_date}')
             return
 
-        # Get active recipients
-        recipients = _get_all('system_notification_recipients', {
-            'select': ('id,name,email,mobile_number,whatsapp_number,'
-                       'notify_email,notify_sms,notify_whatsapp'),
-            'active': 'eq.true',
-        })
-
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        if not recipients:
-            # Mark all pending as no_recipients
-            requests.patch(
-                f'{SUPABASE_URL}/rest/v1/today_matched_listings',
-                headers=_sb_headers(),
-                params={'listed_date': f'eq.{listed_date}', 'notification_status': 'eq.pending'},
-                json={'notification_status': 'no_recipients', 'notification_sent_at': now_iso},
-                timeout=15,
-            )
-            print(f'[notify] No active recipients \u2014 marked {len(pending)} listings as no_recipients')
-            return
-
+        # ── Group listings by organization_id ──────────────────────────────────
+        # Key: organization_id string (or None for legacy / unscoped rows).
+        org_groups: Dict[Optional[str], List[Dict]] = {}
         for match in pending:
-            sent = 0
-            failed = 0
-            delivery_logs: List[Dict] = []
+            oid = match.get('organization_id') or None
+            org_groups.setdefault(oid, []).append(match)
 
-            for rec in recipients:
-                email_subj, email_body, sms_body, wa_body = _build_messages(match, rec.get('name', ''))
+        for org_id, matches in org_groups.items():
+            # Fetch only active recipients belonging to this organisation.
+            # For unscoped listings (org_id is None) fall back to unscoped recipients.
+            rec_params: Dict[str, str] = {
+                'select': ('id,name,email,mobile_number,whatsapp_number,'
+                           'notify_email,notify_sms,notify_whatsapp'),
+                'active': 'eq.true',
+            }
+            if org_id:
+                rec_params['organization_id'] = f'eq.{org_id}'
+            else:
+                rec_params['organization_id'] = 'is.null'
 
-                # ── Email ──────────────────────────────────────────────────────
-                if rec.get('notify_email') and rec.get('email'):
-                    result = _send_email(rec['email'], email_subj, email_body)
-                    ok = result.get('ok', False)
-                    delivery_logs.append({
-                        'matched_listing_id': match['id'],
-                        'recipient_id':       rec['id'],
-                        'recipient_name':     rec.get('name', ''),
-                        'channel':            'email',
-                        'recipient_address':  rec['email'],
-                        'subject':            email_subj,
-                        'message':            email_body,
-                        'status':             'sent' if ok else 'failed',
-                        'provider':           'mailersend',
-                        'provider_response':  result.get('response'),
-                        'error_message':      result.get('error') if not ok else None,
-                        'sent_at':            now_iso if ok else None,
-                    })
-                    if ok:
-                        sent += 1
-                    else:
-                        failed += 1
-                        print(f'[notify] Email failed for {rec.get("email")}: {result.get("error") or result.get("status_code")}')
+            recipients = _get_all('system_notification_recipients', rec_params)
 
-                # ── SMS ────────────────────────────────────────────────────────
-                if rec.get('notify_sms') and rec.get('mobile_number'):
-                    result = _send_sms_twilio(rec['mobile_number'], sms_body)
-                    ok = result.get('ok', False)
-                    delivery_logs.append({
-                        'matched_listing_id': match['id'],
-                        'recipient_id':       rec['id'],
-                        'recipient_name':     rec.get('name', ''),
-                        'channel':            'sms',
-                        'recipient_address':  rec['mobile_number'],
-                        'subject':            None,
-                        'message':            sms_body,
-                        'status':             'sent' if ok else 'failed',
-                        'provider':           'twilio',
-                        'provider_response':  result.get('response'),
-                        'error_message':      result.get('error') if not ok else None,
-                        'sent_at':            now_iso if ok else None,
-                    })
-                    if ok:
-                        sent += 1
-                    else:
-                        failed += 1
-
-                # ── WhatsApp ───────────────────────────────────────────────────
-                if rec.get('notify_whatsapp') and rec.get('whatsapp_number'):
-                    result = _send_whatsapp_twilio(rec['whatsapp_number'], wa_body)
-                    ok = result.get('ok', False)
-                    delivery_logs.append({
-                        'matched_listing_id': match['id'],
-                        'recipient_id':       rec['id'],
-                        'recipient_name':     rec.get('name', ''),
-                        'channel':            'whatsapp',
-                        'recipient_address':  rec['whatsapp_number'],
-                        'subject':            None,
-                        'message':            wa_body,
-                        'status':             'sent' if ok else 'failed',
-                        'provider':           'twilio',
-                        'provider_response':  result.get('response'),
-                        'error_message':      result.get('error') if not ok else None,
-                        'sent_at':            now_iso if ok else None,
-                    })
-                    if ok:
-                        sent += 1
-                    else:
-                        failed += 1
-
-            # Insert delivery logs (fire-and-forget)
-            if delivery_logs:
-                try:
-                    requests.post(
-                        f'{SUPABASE_URL}/rest/v1/notification_delivery_logs',
+            if not recipients:
+                # Mark all listings for this org as no_recipients.
+                for match in matches:
+                    requests.patch(
+                        f'{SUPABASE_URL}/rest/v1/today_matched_listings',
                         headers=_sb_headers(),
-                        json=delivery_logs,
+                        params={'id': f'eq.{match["id"]}'},
+                        json={'notification_status': 'no_recipients', 'notification_sent_at': now_iso},
                         timeout=15,
                     )
-                except Exception:
-                    pass
+                print(f'[notify] org={org_id or "(none)"}: no active recipients — '
+                      f'marked {len(matches)} listings as no_recipients')
+                continue
 
-            # Determine final notification_status
-            if sent > 0 and failed == 0:
-                notif_status = 'notified'
-            elif sent > 0 and failed > 0:
-                notif_status = 'partial'
-            elif failed > 0:
-                notif_status = 'failed'
-            else:
-                notif_status = 'no_recipients'
+            for match in matches:
+                sent = 0
+                failed = 0
+                delivery_logs: List[Dict] = []
 
-            requests.patch(
-                f'{SUPABASE_URL}/rest/v1/today_matched_listings',
-                headers=_sb_headers(),
-                params={'id': f'eq.{match["id"]}'},
-                json={
-                    'notification_status': notif_status,
-                    'notification_sent_at': now_iso,
-                    'notification_count':   sent,
-                },
-                timeout=15,
-            )
-            print(f'[notify] {match.get("case_number")} \u2192 {notif_status} (sent={sent}, failed={failed})')
+                for rec in recipients:
+                    email_subj, email_body, sms_body, wa_body = _build_messages(match, rec.get('name', ''))
+
+                    # ── Email ──────────────────────────────────────────────────────
+                    if rec.get('notify_email') and rec.get('email'):
+                        result = _send_email(rec['email'], email_subj, email_body)
+                        ok = result.get('ok', False)
+                        delivery_logs.append({
+                            'matched_listing_id': match['id'],
+                            'recipient_id':       rec['id'],
+                            'recipient_name':     rec.get('name', ''),
+                            'channel':            'email',
+                            'recipient_address':  rec['email'],
+                            'subject':            email_subj,
+                            'message':            email_body,
+                            'status':             'sent' if ok else 'failed',
+                            'provider':           'mailersend',
+                            'provider_response':  result.get('response'),
+                            'error_message':      result.get('error') if not ok else None,
+                            'sent_at':            now_iso if ok else None,
+                        })
+                        if ok:
+                            sent += 1
+                        else:
+                            failed += 1
+                            print(f'[notify] Email failed for {rec.get("email")}: {result.get("error") or result.get("status_code")}')
+
+                    # ── SMS ────────────────────────────────────────────────────────
+                    if rec.get('notify_sms') and rec.get('mobile_number'):
+                        result = _send_sms_twilio(rec['mobile_number'], sms_body)
+                        ok = result.get('ok', False)
+                        delivery_logs.append({
+                            'matched_listing_id': match['id'],
+                            'recipient_id':       rec['id'],
+                            'recipient_name':     rec.get('name', ''),
+                            'channel':            'sms',
+                            'recipient_address':  rec['mobile_number'],
+                            'subject':            None,
+                            'message':            sms_body,
+                            'status':             'sent' if ok else 'failed',
+                            'provider':           'twilio',
+                            'provider_response':  result.get('response'),
+                            'error_message':      result.get('error') if not ok else None,
+                            'sent_at':            now_iso if ok else None,
+                        })
+                        if ok:
+                            sent += 1
+                        else:
+                            failed += 1
+
+                    # ── WhatsApp ───────────────────────────────────────────────────
+                    if rec.get('notify_whatsapp') and rec.get('whatsapp_number'):
+                        result = _send_whatsapp_twilio(rec['whatsapp_number'], wa_body)
+                        ok = result.get('ok', False)
+                        delivery_logs.append({
+                            'matched_listing_id': match['id'],
+                            'recipient_id':       rec['id'],
+                            'recipient_name':     rec.get('name', ''),
+                            'channel':            'whatsapp',
+                            'recipient_address':  rec['whatsapp_number'],
+                            'subject':            None,
+                            'message':            wa_body,
+                            'status':             'sent' if ok else 'failed',
+                            'provider':           'twilio',
+                            'provider_response':  result.get('response'),
+                            'error_message':      result.get('error') if not ok else None,
+                            'sent_at':            now_iso if ok else None,
+                        })
+                        if ok:
+                            sent += 1
+                        else:
+                            failed += 1
+
+                # Insert delivery logs (fire-and-forget)
+                if delivery_logs:
+                    try:
+                        requests.post(
+                            f'{SUPABASE_URL}/rest/v1/notification_delivery_logs',
+                            headers=_sb_headers(),
+                            json=delivery_logs,
+                            timeout=15,
+                        )
+                    except Exception:
+                        pass
+
+                # Determine final notification_status
+                if sent > 0 and failed == 0:
+                    notif_status = 'notified'
+                elif sent > 0 and failed > 0:
+                    notif_status = 'partial'
+                elif failed > 0:
+                    notif_status = 'failed'
+                else:
+                    notif_status = 'no_recipients'
+
+                requests.patch(
+                    f'{SUPABASE_URL}/rest/v1/today_matched_listings',
+                    headers=_sb_headers(),
+                    params={'id': f'eq.{match["id"]}'},
+                    json={
+                        'notification_status': notif_status,
+                        'notification_sent_at': now_iso,
+                        'notification_count':   sent,
+                    },
+                    timeout=15,
+                )
+                print(f'[notify] org={org_id or "(none)"} {match.get("case_number")} '
+                      f'→ {notif_status} (sent={sent}, failed={failed})')
 
     except Exception as exc:
         print(f'[notify] ERROR (non-fatal): {exc}')
@@ -886,6 +907,7 @@ class handler(BaseHTTPRequestHandler):
                     'listed_date':         today,
                     'match_date':          today,
                     'case_id':             c['id'],
+                    'organization_id':     c.get('organization_id'),
                     'daily_cause_list_id': matched_cl['id'],
                     'case_number':         matched_cl.get('case_number'),
                     'cnr_number':          case_cnr or None,
