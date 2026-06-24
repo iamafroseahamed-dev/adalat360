@@ -56,8 +56,10 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function val(value: string | null | undefined) {
-  return value && value.trim() ? value : '\u2014';
+function val(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return '\u2014';
+  const s = String(value).trim();
+  return s ? s : '\u2014';
 }
 
 function num(value: number | null | undefined) {
@@ -81,12 +83,12 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PartyList({ items }: { items: string[] | null | undefined }) {
+function PartyList({ items }: { items: Array<string | number> | null | undefined }) {
   if (!items || items.length === 0) return <p className="text-sm text-muted-foreground">\u2014</p>;
   return (
     <ul className="space-y-1">
       {items.map((item, i) => (
-        <li key={`${item}-${i}`} className="text-sm font-medium">{item}</li>
+        <li key={`${String(item)}-${i}`} className="text-sm font-medium">{String(item)}</li>
       ))}
     </ul>
   );
@@ -185,7 +187,7 @@ export function CaseDetailsModal({ caseNumber, open, onOpenChange }: CaseDetails
           <DialogTitle className="flex flex-wrap items-center gap-2">
             <span className="font-mono">{val(caseData?.registrationNumber) === '\u2014' ? caseNumber : caseData?.registrationNumber}</span>
             {caseData?.caseStatus && (
-              <Badge variant={caseData.caseStatus.toLowerCase() === 'pending' ? 'warning' : 'secondary'}>
+              <Badge variant={String(caseData.caseStatus).toLowerCase() === 'pending' ? 'warning' : 'secondary'}>
                 {caseData.caseStatus}
               </Badge>
             )}
