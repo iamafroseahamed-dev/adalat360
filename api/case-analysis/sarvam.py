@@ -13,6 +13,16 @@ SARVAM_API_URL = 'https://api.sarvam.ai/v1/chat/completions'
 SARVAM_MODEL = os.environ.get('SARVAM_MODEL', 'sarvam-30b').strip() or 'sarvam-30b'
 
 
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(str(os.environ.get(name, '')).strip() or default)
+    except (TypeError, ValueError):
+        return default
+
+
+SARVAM_MAX_TOKENS = _int_env('SARVAM_MAX_TOKENS', 8000)
+
+
 def _read_local_env_value(name: str) -> str:
     """Best-effort local fallback for Vercel/Python dev runs.
 
@@ -333,7 +343,7 @@ def _make_payload(case_number: str, prompt_context: str, structured: bool, reaso
     base: Dict[str, Any] = {
         'model': SARVAM_MODEL,
         'temperature': 0.2,
-        'max_tokens': 4000,
+        'max_tokens': SARVAM_MAX_TOKENS,
         'messages': [
             {
                 'role': 'system',
@@ -483,9 +493,20 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 snippet = resp.text[:400]
             if 'analysis' not in locals():
+                truncated = False
+                try:
+                    fr = _as_dict(_as_dict((resp.json().get('choices') or [{}])[0])).get('finish_reason')
+                    truncated = (fr == 'length')
+                except Exception:
+                    truncated = False
+                message = (
+                    f'Sarvam model ran out of output tokens before finishing the JSON (finish_reason=length). '
+                    f'Increase SARVAM_MAX_TOKENS (currently {SARVAM_MAX_TOKENS}) or lower reasoning effort.'
+                    if truncated else 'Sarvam AI returned an unreadable response.'
+                )
                 self._json({
                     'success': False,
-                    'message': 'Sarvam AI returned an unreadable response.',
+                    'message': message,
                     'detail': fallback_detail,
                     'responsePreview': snippet,
                     'fallbackPreview': fallback_preview,
