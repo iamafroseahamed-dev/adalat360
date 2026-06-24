@@ -113,54 +113,63 @@ export interface CaseStatusHistory {
   changed_at: string;
 }
 
+export interface AiActionPlanItem {
+  step: string;
+  priority: 'High' | 'Medium' | 'Low';
+  owner: string;
+}
+
 export interface AiCaseAnalysisJson {
-  executive_summary: {
-    case_about: string;
-    key_dispute: string;
+  // 1. Executive Legal Summary — senior-advocate narrative of the matter.
+  executive_legal_summary: string;
+  // 2. Litigation Risk Assessment.
+  litigation_risk_assessment: {
+    level: 'Low' | 'Medium' | 'High';
+    rationale: string;
+    key_risk_factors: string[];
   };
-  parties: {
-    petitioners: string[];
-    respondents: string[];
-    advocates: string[];
+  // 3. Hearing Trend Analysis.
+  hearing_trend_analysis: {
+    pattern: string;
+    adjournment_concerns: string;
+    observations: string[];
   };
-  case_status: {
-    status: string;
-    current_stage: string;
+  // 4. Department Impact Analysis.
+  department_impact_analysis: {
+    summary: string;
+    financial_exposure: string;
+    policy_or_operational_impact: string;
   };
-  hearing_analysis: {
-    total_hearings: number;
-    hearing_trend: string;
-    delays: string;
-  };
-  key_legal_observations: {
-    important_legal_issues: string[];
-    risks: string[];
-    potential_impact: string[];
-  };
-  timeline_summary: {
-    filing_date: string;
-    first_hearing: string;
-    last_hearing: string;
-    next_hearing: string;
-  };
-  advocate_action_items: {
-    immediate_actions: string[];
-    documents_required: string[];
-    follow_up_recommendations: string[];
-  };
+  // 5. Advocate Recommendations.
+  advocate_recommendations: string[];
+  // 6. Missing Information / Missing Documents.
+  missing_information: string[];
+  // 7. Next Hearing Preparation Checklist.
+  next_hearing_preparation_checklist: string[];
+  // 8. Strategic Recommendations.
+  strategic_recommendations: string[];
+  // 9. Similar Case Risk Indicators.
+  similar_case_risk_indicators: string[];
+  // 10. AI Generated Action Plan.
+  ai_action_plan: AiActionPlanItem[];
+
+  // Dashboard signal flags (mirrors litigation_risk_assessment for analytics).
   risk_assessment: {
     level: 'Low' | 'Medium' | 'High';
     reason: string;
   };
-  department_impact: {
-    organization_impact: string;
-    department_impact: string;
-  };
-  recommended_next_steps: string[];
   attention_required: boolean;
   no_activity: boolean;
   long_pending: boolean;
   upcoming_hearing: boolean;
+}
+
+export interface ParsedOrderRecord {
+  order_date: string | null;
+  order_type: string | null;
+  judge: string | null;
+  pdf_url: string | null;
+  summary: string | null;
 }
 
 export interface CaseAiAnalysis {
@@ -170,6 +179,9 @@ export interface CaseAiAnalysis {
   case_hash: string | null;
   ai_summary: string | null;
   ai_json: AiCaseAnalysisJson | null;
+  parsed_orders: ParsedOrderRecord[] | null;
+  parsed_orders_at: string | null;
+  model: string | null;
   generated_at: string;
   generated_by: string | null;
   last_accessed_at: string;
