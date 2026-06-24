@@ -4,12 +4,49 @@ import json
 import os
 import re
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from typing import Any, Dict
 
 import requests
 
 SARVAM_API_URL = 'https://api.sarvam.ai/v1/chat/completions'
 SARVAM_MODEL = os.environ.get('SARVAM_MODEL', 'sarvam-30b').strip() or 'sarvam-30b'
+
+
+def _read_local_env_value(name: str) -> str:
+    """Best-effort local fallback for Vercel/Python dev runs.
+
+    Production should provide real environment variables. This fallback is only
+    used when the variable is absent from os.environ, so local `.env` files work
+    for serverless handlers during development.
+    """
+    root = Path(__file__).resolve().parents[2]
+    for filename in ('.env.local', '.env'):
+        env_path = root / filename
+        try:
+            if not env_path.exists():
+                continue
+            for raw_line in env_path.read_text(encoding='utf-8').splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                if key.strip() != name:
+                    continue
+                value = value.strip().strip('"').strip("'")
+                if value:
+                    return value
+        except Exception:
+            continue
+    return ''
+
+
+def _env(name: str, default: str = '') -> str:
+    value = os.environ.get(name, '').strip()
+    if value:
+        return value
+    local_value = _read_local_env_value(name).strip()
+    return local_value or default
 
 _RESPONSE_SCHEMA: Dict[str, Any] = {
     'type': 'object',
@@ -237,7 +274,7 @@ class handler(BaseHTTPRequestHandler):
             self._json({'success': False, 'message': f'Unexpected error: {exc}'}, 500)
 
     def _handle(self) -> None:
-        api_key = os.environ.get('SARVAM_API_KEY', '').strip()
+        api_key = _env('SARVAM_API_KEY')
         if not api_key:
             self._json({'success': False, 'message': 'SARVAM_API_KEY is not configured on the server.'}, 500)
             return
