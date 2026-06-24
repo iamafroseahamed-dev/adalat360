@@ -30,7 +30,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/cases':           'Case Management',
   '/todays-listings': "Today's Listings",
   '/upcoming-hearings': 'Upcoming Hearings',
-  '/bulk-upload':      'Administration',
+  '/bulk-upload':      'Bulk Upload',
   '/settings':        'Settings',
   '/organizations':   'Organization Management',
   '/about':           'About',

@@ -133,7 +133,7 @@ export default function BulkUploadPage() {
         : preview.data.advocates.length > 0
           ? preview.data.advocates.slice(0, 8)
           : preview.data.recipients.slice(0, 8);
-    return firstSheet as Array<Record<string, unknown>>;
+    return firstSheet as unknown as Array<Record<string, unknown>>;
   }, [preview]);
 
   return (
@@ -165,7 +165,7 @@ export default function BulkUploadPage() {
         <TotalsCard title="Cases" value={preview?.counts.cases ?? 0} icon={FileSpreadsheet} />
         <TotalsCard title="Connected Cases" value={preview?.counts.connectedCases ?? 0} icon={Shield} />
         <TotalsCard title="Tasks" value={preview?.counts.tasks ?? 0} icon={CheckCircle2} />
-        <TotalsCard title="Issues" value={(issueCounts.errors + issueCounts.warnings) ?? 0} icon={AlertTriangle} />
+        <TotalsCard title="Issues" value={issueCounts.errors + issueCounts.warnings} icon={AlertTriangle} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">

@@ -493,12 +493,18 @@ async function insertImportHistory(orgId: string, uploadedBy: string, mode: Exis
     const payload = {
       organization_id: orgId,
       uploaded_by: uploadedBy,
+      uploaded_by_email: uploadedBy.includes('@') ? uploadedBy : null,
       file_name: preview.fileName,
-      import_mode: mode,
+      import_mode: mode === 'update' ? 'update_existing' : 'skip_existing',
+      total_records: Object.values(preview.counts).reduce((a, b) => a + b, 0),
+      success_count: Number(summary.inserted ? Object.values(summary.inserted as Record<string, number>).reduce((a, b) => a + Number(b), 0) : 0) + Number(summary.updated ? Object.values(summary.updated as Record<string, number>).reduce((a, b) => a + Number(b), 0) : 0),
+      error_count: Array.isArray(summary.errors) ? summary.errors.length : 0,
+      warning_count: Array.isArray(summary.warnings) ? summary.warnings.length : 0,
       preview_counts: preview.counts,
       issue_count: preview.issues.length,
       status,
       summary,
+      summary_json: summary,
       error_text: errorText ?? null,
       created_at: nowIso(),
     };
@@ -815,8 +821,8 @@ export async function runBulkImport(args: {
       uploadedBy,
       mode,
       preview,
-      errors.length > 0 ? 'completed_with_errors' : 'completed',
-      { inserted, updated, skipped, warnings: warnings.length, errors: errors.length },
+      errors.length > 0 ? 'completed_with_errors' : 'imported',
+      { inserted, updated, skipped, warnings, errors },
       errors.length > 0 ? 'Some rows failed during import. See error report.' : null,
     );
 
@@ -836,7 +842,7 @@ export async function runBulkImport(args: {
       mode,
       preview,
       'failed',
-      { inserted, updated, skipped, warnings: warnings.length, errors: errors.length },
+      { inserted, updated, skipped, warnings, errors },
       message,
     );
 
