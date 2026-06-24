@@ -231,24 +231,6 @@ function HearingCalendar({ counts }: { counts: Map<string, number> }) {
 
 // ── Small presentational helpers ───────────────────────────────────────────
 
-function ProgressBar({ pct, color = '#2563eb' }: { pct: number; color?: string }) {
-  const v = Math.max(0, Math.min(100, pct));
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-        <div className="h-full rounded-full" style={{ width: `${v}%`, backgroundColor: color }} />
-      </div>
-      <span className="w-9 shrink-0 text-right text-[11px] font-semibold tabular-nums">{v}%</span>
-    </div>
-  );
-}
-
-function pctColor(pct: number): string {
-  if (pct >= 75) return '#16a34a';
-  if (pct >= 50) return '#d97706';
-  return '#dc2626';
-}
-
 function statusPill(status: string | null | undefined): string {
   const s = (status ?? '').toLowerCase();
   if (s === 'disposed') return 'bg-emerald-100 text-emerald-700';
@@ -489,6 +471,7 @@ export default function DashboardPage() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base"><Layers className="h-4 w-4" /> Section → Advocate Mapping</CardTitle>
+          <p className="text-xs text-muted-foreground">Case-level: section &amp; assigned advocate (cases.section + cases.assigned_advocate_name)</p>
         </CardHeader>
         <CardContent className="p-0">
           {exec.isLoading ? (
@@ -502,10 +485,7 @@ export default function DashboardPage() {
                   <tr className="border-b text-left text-xs text-muted-foreground">
                     <th className="px-3 py-2 font-medium">Section</th>
                     <th className="px-3 py-2 font-medium">Advocate</th>
-                    <th className="px-3 py-2 text-right font-medium">Assigned</th>
-                    <th className="px-3 py-2 text-right font-medium">Open</th>
-                    <th className="px-3 py-2 text-right font-medium">Completed</th>
-                    <th className="px-3 py-2 text-right font-medium">Overdue</th>
+                    <th className="px-3 py-2 text-right font-medium">Total Assigned Cases</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -513,10 +493,7 @@ export default function DashboardPage() {
                     <tr key={`${r.section}-${r.advocate}-${i}`} className="border-b last:border-0">
                       <td className="px-3 py-2">{r.section}</td>
                       <td className="px-3 py-2">{r.advocate}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{r.assignedCases}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{r.openTasks}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-emerald-600">{r.completedTasks}</td>
-                      <td className={`px-3 py-2 text-right tabular-nums ${r.overdueTasks > 0 ? 'font-semibold text-red-600' : ''}`}>{r.overdueTasks}</td>
+                      <td className="px-3 py-2 text-right font-semibold tabular-nums">{r.assignedCases}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -532,6 +509,7 @@ export default function DashboardPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base"><Users className="h-4 w-4" /> Advocate Performance</CardTitle>
+              <p className="text-xs text-muted-foreground">Case-level workload from cases.assigned_advocate_name (excludes task assignees)</p>
             </CardHeader>
             <CardContent className="p-0">
               {exec.isLoading ? (
@@ -544,32 +522,22 @@ export default function DashboardPage() {
                     <thead className="sticky top-0 bg-background">
                       <tr className="border-b text-left text-xs text-muted-foreground">
                         <th className="px-3 py-2 font-medium">Advocate</th>
-                        <th className="px-3 py-2 text-right font-medium">Cases</th>
-                        <th className="px-3 py-2 text-right font-medium">Ready</th>
-                        <th className="px-3 py-2 text-right font-medium">Pending Docs</th>
+                        <th className="px-3 py-2 text-right font-medium">Assigned Cases</th>
+                        <th className="px-3 py-2 text-right font-medium">Ready For Hearing</th>
+                        <th className="px-3 py-2 text-right font-medium">Pending Documents</th>
                         <th className="px-3 py-2 text-right font-medium">Counter Pending</th>
-                        <th className="px-3 py-2 text-right font-medium">Compliance Pending</th>
-                        <th className="px-3 py-2 text-right font-medium">Open</th>
-                        <th className="px-3 py-2 text-right font-medium">Done</th>
-                        <th className="px-3 py-2 text-right font-medium">Overdue</th>
-                        <th className="px-3 py-2 text-right font-medium">Hearings</th>
-                        <th className="px-3 py-2 font-medium" style={{ minWidth: 130 }}>Completion</th>
+                        <th className="px-3 py-2 text-right font-medium">Hearings This Month</th>
                       </tr>
                     </thead>
                     <tbody>
                       {(a?.advocates ?? []).map((r, i) => (
                         <tr key={`${r.advocate}-${i}`} className="border-b last:border-0">
                           <td className="px-3 py-2">{r.advocate}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{r.assignedCases}</td>
+                          <td className="px-3 py-2 text-right font-semibold tabular-nums">{r.assignedCases}</td>
                           <td className="px-3 py-2 text-right tabular-nums text-emerald-600">{r.readyForHearing}</td>
                           <td className="px-3 py-2 text-right tabular-nums text-orange-600">{r.documentsAwaited}</td>
                           <td className="px-3 py-2 text-right tabular-nums text-amber-600">{r.counterPending}</td>
-                          <td className={`px-3 py-2 text-right tabular-nums ${r.compliancePending > 0 ? 'font-semibold text-rose-600' : ''}`}>{r.compliancePending}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{r.openTasks}</td>
-                          <td className="px-3 py-2 text-right tabular-nums text-emerald-600">{r.completedTasks}</td>
-                          <td className={`px-3 py-2 text-right tabular-nums ${r.overdueTasks > 0 ? 'font-semibold text-red-600' : ''}`}>{r.overdueTasks}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{r.hearingsThisMonth}</td>
-                          <td className="px-3 py-2"><ProgressBar pct={r.completionPct} color={pctColor(r.completionPct)} /></td>
+                          <td className="px-3 py-2 text-right tabular-nums text-indigo-600">{r.hearingsThisMonth}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -583,7 +551,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base"><Trophy className="h-4 w-4 text-amber-500" /> Advocate Leaderboard</CardTitle>
-            <p className="text-xs text-muted-foreground">Ranked by task completion %, closed cases &amp; on-time delivery</p>
+            <p className="text-xs text-muted-foreground">Ranked by assigned cases, disposed cases &amp; hearings handled</p>
           </CardHeader>
           <CardContent className="p-0">
             {exec.isLoading ? (
@@ -597,9 +565,9 @@ export default function DashboardPage() {
                     <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-slate-200 text-slate-700' : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-muted text-muted-foreground'}`}>{i + 1}</span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{r.advocate}</p>
-                      <p className="text-[11px] text-muted-foreground">{r.closedCases} closed · {r.completedTasks}/{r.totalTasks} tasks</p>
+                      <p className="text-[11px] text-muted-foreground">{r.disposedCases} disposed · {r.hearingsThisMonth} hearings</p>
                     </div>
-                    <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">{r.completionPct}%</span>
+                    <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{r.assignedCases} cases</span>
                   </li>
                 ))}
               </ul>
@@ -607,6 +575,44 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Task Assignee Performance — task-level, any officer/clerk (NOT advocates) */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base"><ListTodo className="h-4 w-4 text-indigo-600" /> Task Assignee Performance</CardTitle>
+          <p className="text-xs text-muted-foreground">Tasks assigned to any person — IAS officer, Tahsildar, revenue inspector, assistant, clerk, external officer (case_tasks.assigned_to_name)</p>
+        </CardHeader>
+        <CardContent className="p-0">
+          {exec.isLoading ? (
+            <div className="space-y-2 p-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-8" />)}</div>
+          ) : (a?.taskAssignees ?? []).length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">No task assignee data.</p>
+          ) : (
+            <div className="max-h-[420px] overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-background">
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">Task Assignee</th>
+                    <th className="px-3 py-2 text-right font-medium">Open Tasks</th>
+                    <th className="px-3 py-2 text-right font-medium">Completed Tasks</th>
+                    <th className="px-3 py-2 text-right font-medium">Overdue Tasks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(a?.taskAssignees ?? []).map((r, i) => (
+                    <tr key={`${r.assignee}-${i}`} className="border-b last:border-0">
+                      <td className="px-3 py-2">{r.assignee}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{r.openTasks}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-emerald-600">{r.completedTasks}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${r.overdueTasks > 0 ? 'font-semibold text-red-600' : ''}`}>{r.overdueTasks}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Upcoming Hearings Requiring Action + Overdue Task Tracker */}
       <div className="grid gap-4 lg:grid-cols-2">
