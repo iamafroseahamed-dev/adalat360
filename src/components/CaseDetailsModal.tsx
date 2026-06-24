@@ -380,6 +380,7 @@ export function CaseDetailsModal({
 
     setSyncing(true);
     setError(null);
+    console.log('[Sync] ▶ start', { caseId, caseNumber: key });
     try {
       // Step 1 — fresh case details from eCourts (bypasses all cache layers)
       const entry = await fetchFromApi(key);
@@ -387,11 +388,15 @@ export function CaseDetailsModal({
 
       const cd = entry.data;
 
-      // Step 2 — map API response → cases columns and update only this record
+      // Step 2 — map API response → cases columns and UPDATE only this record.
+      // NOTE: id / organization_id / case_number are deliberately NEVER written.
+      // court_name is intentionally NOT updated — the Cases page is scoped by
+      // `.eq('court_name', 'Principal Bench of Madras High Court')`, so overwriting
+      // it with the eCourts court string would push the row out of that filtered
+      // view and make it "disappear" from the table.
       const update: Record<string, unknown> = {
         case_status: strOrNull(cd.caseStatus),
         cnr_number: strOrNull(cd.cnr),
-        court_name: strOrNull(cd.courtName),
         section: strOrNull(cd.judicialSection),
         petitioner: joinList(cd.petitioners),
         respondent: joinList(cd.respondents),
@@ -408,11 +413,23 @@ export function CaseDetailsModal({
       const disposal = strOrNull(cd.natureOfDisposal);
       if (disposal) update.nature_of_disposal = disposal;
 
-      const { error: updateError } = await supabase
+      console.log('[Sync] payload (UPDATE only, .eq id)', { caseId, update });
+
+      // UPDATE-ONLY: never insert / upsert / delete. `.select()` returns the
+      // updated row so we can confirm exactly one record changed (an empty array
+      // would indicate RLS/permission blocked the write, not a delete).
+      const { data: updatedRows, error: updateError } = await supabase
         .from('cases')
         .update(update)
-        .eq('id', caseId);
+        .eq('id', caseId)
+        .select('id, case_number, court_name, case_status, case_details_synced_at');
+
+      console.log('[Sync] Supabase response', { updatedRows, updateError });
+
       if (updateError) throw updateError;
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error('No record updated — check RLS/permissions or that the id exists.');
+      }
 
       // Refresh caches + modal data without a page reload
       caseDetailsCache.set(key, entry);
@@ -422,8 +439,18 @@ export function CaseDetailsModal({
       await queryClient.invalidateQueries();
       onSynced?.();
 
+      // Verification re-fetch — confirms the record still exists & is visible.
+      const { data: verifyRow, error: verifyError } = await supabase
+        .from('cases')
+        .select('id, case_number, court_name, case_status, case_details_synced_at')
+        .eq('id', caseId)
+        .maybeSingle();
+      console.log('[Sync] ✔ verification re-fetch', { verifyRow, verifyError });
+      console.log('[Sync] ◼ done', { caseId });
+
       toast.success('Case synchronized successfully.');
-    } catch {
+    } catch (err) {
+      console.error('[Sync] ✖ failed', { caseId, error: err });
       toast.error('Unable to synchronize case details.');
     } finally {
       setSyncing(false);

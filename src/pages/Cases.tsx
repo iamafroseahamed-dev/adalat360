@@ -283,6 +283,7 @@ export default function CasesPage() {
       .eq('court_name', 'Principal Bench of Madras High Court')
       .order('created_at', { ascending: false });
     if (err) { setError(err.message); setLoading(false); return; }
+    console.log('[Cases] refreshed list', { count: data?.length ?? 0, ids: (data ?? []).map(c => c.id) });
     setCases(data ?? []);
     setLoading(false);
   }, []);
