@@ -49,7 +49,7 @@ function isoLocal(d: Date): string {
 // ── KPI card ─────────────────────────────────────────────────────────────────
 
 function KpiCard({
-  label, value, icon: Icon, accent, loading, onClick,
+  label, value, icon: Icon, accent, loading, onClick, danger,
 }: {
   label: string;
   value: number;
@@ -57,9 +57,10 @@ function KpiCard({
   accent: string;
   loading: boolean;
   onClick?: () => void;
+  danger?: boolean;
 }) {
   const body = (
-    <Card className={onClick ? 'h-full transition-colors hover:bg-muted/40' : 'h-full'}>
+    <Card className={`${onClick ? 'h-full transition-colors hover:bg-muted/40' : 'h-full'} ${danger && value > 0 ? 'border-red-300 bg-red-50/40' : ''}`}>
       <CardContent className="p-5">
         <div className="flex items-start justify-between">
           <p className="text-sm font-medium text-muted-foreground">{label}</p>
@@ -254,6 +255,15 @@ function statusPill(status: string | null | undefined): string {
   if (s === 'pending') return 'bg-amber-100 text-amber-700';
   if (s === 'active') return 'bg-blue-100 text-blue-700';
   return 'bg-slate-100 text-slate-600';
+}
+
+function DrillMetric({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="rounded-md border px-3 py-2">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className={`text-xl font-bold ${color}`}>{value.toLocaleString('en-IN')}</p>
+    </div>
+  );
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
