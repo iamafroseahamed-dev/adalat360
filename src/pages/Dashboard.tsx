@@ -384,6 +384,107 @@ export default function DashboardPage() {
         </Card>
       </div>
 
+      {/* Litigation analytics — Top districts / Sections / Advocates */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base"><Trophy className="h-4 w-4 text-amber-600" /> Top 10 Districts by Litigation</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {exec.isLoading ? (
+              <div className="space-y-2 p-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-7" />)}</div>
+            ) : (a?.districts ?? []).length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">No district data.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">District</th>
+                    <th className="px-3 py-2 text-right font-medium">Total Cases</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...(a?.districts ?? [])].sort((x, y) => y.total - x.total).slice(0, 10).map((d, i) => (
+                    <tr
+                      key={`${d.district}-${i}`}
+                      className="cursor-pointer border-b last:border-0 hover:bg-muted/50"
+                      onClick={() => setSelectedDistrict(d.district === selectedDistrict ? null : d.district)}
+                    >
+                      <td className="px-3 py-2">{d.district}</td>
+                      <td className="px-3 py-2 text-right font-semibold tabular-nums">{d.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base"><Layers className="h-4 w-4 text-indigo-600" /> Section-wise Cases</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {exec.isLoading ? (
+              <div className="space-y-2 p-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-7" />)}</div>
+            ) : (a?.sections ?? []).length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">No section data.</p>
+            ) : (
+              <div className="max-h-[320px] overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b text-left text-xs text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">Section</th>
+                      <th className="px-3 py-2 text-right font-medium">Total Cases</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...(a?.sections ?? [])].sort((x, y) => Number(y.value) - Number(x.value)).map((s, i) => (
+                      <tr key={`${s.label}-${i}`} className="border-b last:border-0">
+                        <td className="px-3 py-2">{s.label}</td>
+                        <td className="px-3 py-2 text-right font-semibold tabular-nums">{s.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base"><Users className="h-4 w-4 text-blue-600" /> Advocate Distribution</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {exec.isLoading ? (
+              <div className="space-y-2 p-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-7" />)}</div>
+            ) : (a?.advocates ?? []).length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">No advocate data.</p>
+            ) : (
+              <div className="max-h-[320px] overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b text-left text-xs text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">Advocate</th>
+                      <th className="px-3 py-2 text-right font-medium">Assigned Cases</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...(a?.advocates ?? [])].sort((x, y) => y.assignedCases - x.assignedCases).map((r, i) => (
+                      <tr key={`${r.advocate}-${i}`} className="border-b last:border-0">
+                        <td className="px-3 py-2">{r.advocate}</td>
+                        <td className="px-3 py-2 text-right font-semibold tabular-nums">{r.assignedCases}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Section → Advocate mapping */}
       <Card>
         <CardHeader className="pb-2">

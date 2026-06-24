@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import ReactECharts from 'echarts-for-react';
-import * as echarts from 'echarts';
+import ReactECharts from 'echarts-for-react/lib/core';
+import * as echarts from 'echarts/core';
+import { MapChart } from 'echarts/charts';
+import { TooltipComponent, VisualMapComponent } from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MapPin, Plus, Minus, RotateCcw } from 'lucide-react';
 import type { DistrictLitigation, DistrictDetail } from '@/lib/dashboardQueries';
+
+// Register only the ECharts modules we use (tree-shakeable core build).
+echarts.use([MapChart, TooltipComponent, VisualMapComponent, CanvasRenderer]);
 
 /**
  * Tamil Nadu Litigation Heat Map — Apache ECharts choropleth (React 19 safe).
