@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { AuthProvider } from '@/lib/auth';
+import { OrgProvider } from '@/lib/orgContext';
 import { ProtectedRoute, PublicRoute } from '@/components/ProtectedRoute';
 import { Layout } from '@/components/Layout';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -45,32 +46,34 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <BrowserRouter>
-          <Suspense fallback={<PageLoader />}>
-            <Routes>
-              {/* Public */}
-              <Route element={<PublicRoute />}>
-                <Route path="/login" element={<Login />} />
-              </Route>
-
-              {/* Protected */}
-              <Route element={<ProtectedRoute />}>
-                <Route element={<Layout />}>
-                  <Route path="/dashboard"       element={<Dashboard />} />
-                  <Route path="/cases"           element={<Cases />} />
-                  <Route path="/todays-listings" element={<TodaysListings />} />
-                  <Route path="/upcoming-hearings" element={<UpcomingHearings />} />
-                  <Route path="/settings"        element={<Settings />} />
-                  <Route path="/organizations"   element={<Organizations />} />
-                  <Route path="/about"           element={<About />} />
+        <OrgProvider>
+          <BrowserRouter>
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                {/* Public */}
+                <Route element={<PublicRoute />}>
+                  <Route path="/login" element={<Login />} />
                 </Route>
-              </Route>
 
-              {/* Fallback */}
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
+                {/* Protected */}
+                <Route element={<ProtectedRoute />}>
+                  <Route element={<Layout />}>
+                    <Route path="/dashboard"       element={<Dashboard />} />
+                    <Route path="/cases"           element={<Cases />} />
+                    <Route path="/todays-listings" element={<TodaysListings />} />
+                    <Route path="/upcoming-hearings" element={<UpcomingHearings />} />
+                    <Route path="/settings"        element={<Settings />} />
+                    <Route path="/organizations"   element={<Organizations />} />
+                    <Route path="/about"           element={<About />} />
+                  </Route>
+                </Route>
+
+                {/* Fallback */}
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </Suspense>
+          </BrowserRouter>
+        </OrgProvider>
         <Toaster richColors position="top-right" expand={true} duration={4000} />
       </AuthProvider>
     </QueryClientProvider>

@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { AppFooter } from '@/components/AppFooter';
+import { OrgCreditWidget } from '@/components/OrgCreditWidget';
 
 // ── Nav items ─────────────────────────────────────────────────────────────────
 
@@ -174,6 +175,7 @@ function Header({ title, onMenuClick }: { title: string; onMenuClick: () => void
         </div>
       </div>
       <div className="flex items-center gap-2 sm:gap-3">
+        <OrgCreditWidget />
         <div className="flex items-center gap-2 border-l pl-2 sm:pl-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
             {user?.profile.full_name.charAt(0).toUpperCase()}
