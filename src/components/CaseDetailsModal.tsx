@@ -122,7 +122,7 @@ export function CaseDetailsModal({ caseNumber, open, onOpenChange }: CaseDetails
     setCaseData(null);
 
     // WP/4232/2024 → caseType="WP", caseNo="4232", caseYear="2024"
-    const [caseType = '', caseNo = '', caseYear = ''] = rawCaseNumber.split('/');
+    const [caseType = '', caseNo = '', caseYear = ''] = String(rawCaseNumber ?? '').split('/');
     const ecourtsCaseType = getEcourtsCaseType(caseType);
 
     if (import.meta.env.DEV) {

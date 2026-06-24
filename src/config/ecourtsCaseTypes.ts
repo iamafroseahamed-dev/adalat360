@@ -37,7 +37,7 @@ export const ECOURTS_CASE_TYPES: Record<string, string> = {
 };
 
 export function getEcourtsCaseType(caseType: string): string {
-  const normalized = caseType.trim().toUpperCase();
+  const normalized = String(caseType ?? '').trim().toUpperCase();
 
   return ECOURTS_CASE_TYPES[normalized] ?? normalized;
 }
