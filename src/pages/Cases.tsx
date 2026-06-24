@@ -14,8 +14,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { Plus, Search, Edit2, Eye, ExternalLink, FileText, Filter, Loader2, X, PowerOff, RefreshCw, Download, Scale, UserPlus, ListPlus, Link2, Trash2 } from 'lucide-react';
+import { Plus, Search, Edit2, Eye, ExternalLink, FileText, Filter, Loader2, X, PowerOff, RefreshCw, Download, Scale, UserPlus, ListPlus, Link2, Trash2, MoreHorizontal, StickyNote } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { CaseDetailsModal } from '@/components/CaseDetailsModal';
 import { TaskFormDialog } from '@/components/TaskFormDialog';
@@ -868,37 +872,70 @@ export default function CasesPage() {
                         : <span className="text-muted-foreground">0</span>}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button size="icon" variant="ghost" className="h-8 w-8" title="View"
-                          onClick={() => { setSelected(c); setDialogMode('view'); }}>
-                          <Eye className="w-3.5 h-3.5" />
+                      <div className="flex items-center justify-end gap-1.5">
+                        {/* Primary actions — always labeled, visible on tablet/desktop */}
+                        <Button size="sm" className="hidden h-8 gap-1 bg-blue-600 px-2.5 text-white hover:bg-blue-700 sm:inline-flex"
+                          title="View Case" onClick={() => { setSelected(c); setDialogMode('view'); }}>
+                          <Eye className="h-3.5 w-3.5" /> View
                         </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit"
-                          onClick={() => { setSelected(c); setDialogMode('edit'); }}>
-                          <Edit2 className="w-3.5 h-3.5" />
+                        <Button size="sm" className="hidden h-8 gap-1 bg-orange-500 px-2.5 text-white hover:bg-orange-600 sm:inline-flex"
+                          title="Edit Case" onClick={() => { setSelected(c); setDialogMode('edit'); }}>
+                          <Edit2 className="h-3.5 w-3.5" /> Edit
                         </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500 hover:text-red-700" title="Deactivate"
-                          onClick={() => setDeactivateTarget(c)}>
-                          <PowerOff className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-primary" title="View MHC Order"
-                          disabled={!c.case_number}
-                          onClick={() => fetchCaseDetails(c)}>
-                          <FileText className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-primary" title="Case Details"
-                          disabled={!c.case_number}
-                          onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsId(c.id); setCaseDetailsTab('overview'); setCaseDetailsOpen(true); }}>
-                          <Scale className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8" title="Assign Advocate"
-                          onClick={() => { setAssignTarget(c); setAssignAdvocateId(''); }}>
-                          <UserPlus className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-primary" title="Create Task"
-                          onClick={() => setTaskCase(c)}>
-                          <ListPlus className="w-3.5 h-3.5" />
-                        </Button>
+
+                        {/* Secondary actions — labeled menu (also holds View/Edit on mobile) */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="sm" variant="outline" className="h-8 gap-1 px-2.5" title="More actions">
+                              <span className="sm:hidden">Actions</span>
+                              <span className="hidden sm:inline">More</span>
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52">
+                            <DropdownMenuLabel>{c.case_number}</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {/* View & Edit appear in the menu only on mobile */}
+                            <DropdownMenuItem className="sm:hidden text-blue-700"
+                              onClick={() => { setSelected(c); setDialogMode('view'); }}>
+                              <Eye className="text-blue-600" /> View Case
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="sm:hidden text-orange-700"
+                              onClick={() => { setSelected(c); setDialogMode('edit'); }}>
+                              <Edit2 className="text-orange-500" /> Edit Case
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator className="sm:hidden" />
+                            <DropdownMenuItem className="text-purple-700" disabled={!c.case_number}
+                              onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsId(c.id); setCaseDetailsTab('overview'); setCaseDetailsOpen(true); }}>
+                              <Scale className="text-purple-600" /> Case Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-green-700" disabled={!c.case_number}
+                              onClick={() => fetchCaseDetails(c)}>
+                              <RefreshCw className="text-green-600" /> Sync Case
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-indigo-700"
+                              onClick={() => setTaskCase(c)}>
+                              <ListPlus className="text-indigo-600" /> Create Task
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-teal-700"
+                              onClick={() => { setAssignTarget(c); setAssignAdvocateId(''); }}>
+                              <UserPlus className="text-teal-600" /> Assign Advocate
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-amber-800" disabled={!c.case_number}
+                              onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsId(c.id); setCaseDetailsTab('connected'); setCaseDetailsOpen(true); }}>
+                              <Link2 className="text-amber-700" /> Connected Cases
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-slate-700" disabled={!c.case_number}
+                              onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsId(c.id); setCaseDetailsTab('notes'); setCaseDetailsOpen(true); }}>
+                              <StickyNote className="text-slate-500" /> Notes
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-red-600 focus:text-red-700"
+                              onClick={() => setDeactivateTarget(c)}>
+                              <PowerOff className="text-red-500" /> Deactivate
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </TableCell>
                   </TableRow>
