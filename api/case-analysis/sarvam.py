@@ -179,6 +179,56 @@ def _extract_analysis(result: Dict[str, Any]) -> Dict[str, Any]:
     raise ValueError('No parseable JSON analysis payload found in Sarvam response')
 
 
+def _make_payload(case_number: str, prompt_context: str, structured: bool) -> Dict[str, Any]:
+    user_content = (
+        'Analyse the following case and provide: executive summary, parties, case status, hearing analysis, legal observations, timeline summary, advocate action items, risk assessment, department impact, and recommended next steps. '
+        'Also classify attention_required, no_activity, long_pending, and upcoming_hearing as booleans. '
+        'Return valid JSON only, with no markdown fences and no explanatory text outside the JSON object.\n\n'
+        f'Case Number: {case_number}\n\n'
+        f'Context JSON:\n{prompt_context}'
+    )
+
+    payload: Dict[str, Any] = {
+        'model': SARVAM_MODEL,
+        'temperature': 0.2,
+        'reasoning_effort': 'medium',
+        'max_tokens': 1800,
+        'messages': [
+            {
+                'role': 'system',
+                'content': (
+                    'You are a senior Indian litigation analyst. Analyse the court case context provided and produce a concise, practical, legally-aware summary for an internal government litigation team. '
+                    'Be factual, do not invent facts, and if data is missing state that clearly. Focus on actionable insights, risk, hearing progress, and department impact. '
+                    'Always output a single JSON object and nothing else.'
+                ),
+            },
+            {
+                'role': 'user',
+                'content': user_content,
+            },
+        ],
+    }
+
+    if structured:
+        payload['response_format'] = {
+            'type': 'json_schema',
+            'json_schema': {
+                'name': 'case_ai_analysis',
+                'description': 'Structured legal case analysis for internal dashboard and case detail insights.',
+                'schema': _RESPONSE_SCHEMA,
+                'strict': True,
+            },
+        }
+    else:
+        payload['response_format'] = {'type': 'json_object'}
+
+    return payload
+
+
+def _post_sarvam(headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
+    return requests.post(SARVAM_API_URL, headers=headers, json=payload, timeout=(20, 90))
+
+
 class handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         try:
@@ -206,39 +256,7 @@ class handler(BaseHTTPRequestHandler):
             return
 
         prompt_context = json.dumps(context, ensure_ascii=False)[:120000]
-        payload = {
-            'model': SARVAM_MODEL,
-            'temperature': 0.2,
-            'reasoning_effort': 'medium',
-            'max_tokens': 1800,
-            'messages': [
-                {
-                    'role': 'system',
-                    'content': (
-                        'You are a senior Indian litigation analyst. Analyse the court case context provided and produce a concise, practical, legally-aware summary for an internal government litigation team. '
-                        'Be factual, do not invent facts, and if data is missing state that clearly. Focus on actionable insights, risk, hearing progress, and department impact.'
-                    ),
-                },
-                {
-                    'role': 'user',
-                    'content': (
-                        'Analyse the following case and provide: executive summary, parties, case status, hearing analysis, legal observations, timeline summary, advocate action items, risk assessment, department impact, and recommended next steps. '
-                        'Also classify attention_required, no_activity, long_pending, and upcoming_hearing as booleans.\n\n'
-                        f'Case Number: {case_number}\n\n'
-                        f'Context JSON:\n{prompt_context}'
-                    ),
-                },
-            ],
-            'response_format': {
-                'type': 'json_schema',
-                'json_schema': {
-                    'name': 'case_ai_analysis',
-                    'description': 'Structured legal case analysis for internal dashboard and case detail insights.',
-                    'schema': _RESPONSE_SCHEMA,
-                    'strict': True,
-                },
-            },
-        }
+        payload = _make_payload(case_number, prompt_context, structured=True)
 
         headers = {
             'api-subscription-key': api_key,
@@ -248,7 +266,7 @@ class handler(BaseHTTPRequestHandler):
         }
 
         try:
-            resp = requests.post(SARVAM_API_URL, headers=headers, json=payload, timeout=(20, 90))
+            resp = _post_sarvam(headers, payload)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
             self._json({'success': False, 'message': 'Sarvam AI is currently unreachable. Please try again later.'}, 503)
             return
@@ -275,18 +293,37 @@ class handler(BaseHTTPRequestHandler):
             result = resp.json()
             analysis = _extract_analysis(result)
         except Exception as exc:
+            fallback_preview = ''
+            fallback_detail = str(exc)
+            try:
+                fallback_resp = _post_sarvam(headers, _make_payload(case_number, prompt_context, structured=False))
+                fallback_resp.raise_for_status()
+                fallback_result = fallback_resp.json()
+                analysis = _extract_analysis(fallback_result)
+                result = fallback_result
+            except Exception as fallback_exc:
+                fallback_detail = f'{fallback_detail}; fallback={fallback_exc}'
+                try:
+                    fallback_preview = json.dumps(fallback_resp.json())[:400]
+                except Exception:
+                    try:
+                        fallback_preview = fallback_resp.text[:400]
+                    except Exception:
+                        fallback_preview = ''
             snippet = ''
             try:
                 snippet = json.dumps(resp.json())[:400]
             except Exception:
                 snippet = resp.text[:400]
-            self._json({
-                'success': False,
-                'message': 'Sarvam AI returned an unreadable response.',
-                'detail': str(exc),
-                'responsePreview': snippet,
-            }, 502)
-            return
+            if 'analysis' not in locals():
+                self._json({
+                    'success': False,
+                    'message': 'Sarvam AI returned an unreadable response.',
+                    'detail': fallback_detail,
+                    'responsePreview': snippet,
+                    'fallbackPreview': fallback_preview,
+                }, 502)
+                return
 
         self._json({
             'success': True,
