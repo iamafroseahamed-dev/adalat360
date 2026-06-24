@@ -255,14 +255,29 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
         last_accessed_at: new Date().toISOString(),
       };
 
-      const { data, error: upsertErr } = await supabase
+      const { data: existingRow, error: existingErr } = await supabase
         .from('case_ai_analysis')
-        .upsert(upsertPayload, { onConflict: 'case_id' })
-        .select('*')
-        .single();
-      if (upsertErr) throw upsertErr;
-      setRecord(data as CaseAiAnalysis);
-      setCurrentHash((data as CaseAiAnalysis).case_hash ?? currentHash);
+        .select('id')
+        .eq('case_id', caseId)
+        .maybeSingle();
+      if (existingErr) throw existingErr;
+
+      const persisted = existingRow?.id
+        ? await supabase
+            .from('case_ai_analysis')
+            .update(upsertPayload)
+            .eq('id', existingRow.id)
+            .select('*')
+            .single()
+        : await supabase
+            .from('case_ai_analysis')
+            .insert(upsertPayload)
+            .select('*')
+            .single();
+
+      if (persisted.error) throw persisted.error;
+      setRecord(persisted.data as CaseAiAnalysis);
+      setCurrentHash((persisted.data as CaseAiAnalysis).case_hash ?? currentHash);
       setStaleAnalysis(false);
       toast.success(refresh ? 'AI analysis refreshed.' : 'AI analysis generated.');
     } catch (err) {
