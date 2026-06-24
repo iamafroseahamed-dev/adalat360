@@ -22,7 +22,7 @@ import {
   fetchExecutiveAnalytics,
   type CategoryCount,
 } from '@/lib/dashboardQueries';
-import { TNLitigationHeatMap } from '@/components/TNLitigationHeatMap';
+import { TNDistrictMap } from '@/components/TNDistrictMap';
 import type { Case } from '@/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -343,11 +343,12 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Tamil Nadu Litigation Heat Map + District drill-down */}
+      {/* Tamil Nadu Litigation Map + District drill-down */}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <TNLitigationHeatMap
+          <TNDistrictMap
             districts={a?.districts ?? []}
+            details={a?.districtDetails ?? {}}
             selected={selectedDistrict}
             onSelect={(d) => setSelectedDistrict(d === selectedDistrict ? null : d)}
             loading={exec.isLoading}
