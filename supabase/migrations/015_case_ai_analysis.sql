@@ -8,18 +8,29 @@ CREATE TABLE IF NOT EXISTS public.case_ai_analysis (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   case_id uuid NOT NULL REFERENCES public.cases(id) ON DELETE CASCADE,
   cnr_number text NULL,
+  case_hash text NULL,
   ai_summary text NULL,
   ai_json jsonb NULL,
   generated_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
   generated_by text NULL,
+  last_accessed_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
   CONSTRAINT uq_case_ai_analysis_case_id UNIQUE (case_id)
 );
+
+ALTER TABLE public.case_ai_analysis
+  ADD COLUMN IF NOT EXISTS case_hash text;
+
+ALTER TABLE public.case_ai_analysis
+  ADD COLUMN IF NOT EXISTS last_accessed_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now());
 
 CREATE INDEX IF NOT EXISTS idx_case_ai_analysis_case_id
   ON public.case_ai_analysis(case_id);
 
 CREATE INDEX IF NOT EXISTS idx_case_ai_analysis_generated_at
   ON public.case_ai_analysis(generated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_case_ai_analysis_last_accessed_at
+  ON public.case_ai_analysis(last_accessed_at DESC);
 
 ALTER TABLE public.case_ai_analysis ENABLE ROW LEVEL SECURITY;
 

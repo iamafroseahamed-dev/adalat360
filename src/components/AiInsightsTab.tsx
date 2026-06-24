@@ -49,6 +49,38 @@ async function fetchCaseCache(caseId: string) {
   return data as Record<string, unknown> | null;
 }
 
+function stableStringify(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function sha256(input: string): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function buildCaseHash(caseId: string): Promise<string> {
+  const cache = await fetchCaseCache(caseId);
+  const [notesRes, tasksRes] = await Promise.all([
+    supabase.from('case_notes').select('note_text, created_by, created_at').eq('case_id', caseId).order('created_at', { ascending: true }),
+    supabase.from('case_tasks').select('task_title, task_description, assigned_to_name, due_date, task_status, priority, created_at, completed_at').eq('case_id', caseId).order('created_at', { ascending: true }),
+  ]);
+
+  const source = stableStringify({
+    case_details_json: cache?.case_details_json ?? null,
+    advocate_status: cache?.advocate_status ?? null,
+    case_notes: notesRes.data ?? [],
+    case_tasks: tasksRes.data ?? [],
+  });
+
+  return sha256(source);
+}
+
 async function ensureCaseDetails(caseId: string, caseNumber: string | null, provided: EcourtsCaseData | null | undefined): Promise<{ data: EcourtsCaseData; requestId: string | null; organizationId: string | null }> {
   if (provided) {
     const row = await fetchCaseCache(caseId);
@@ -154,6 +186,8 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentHash, setCurrentHash] = useState<string | null>(null);
+  const [staleAnalysis, setStaleAnalysis] = useState(false);
 
   const loadCached = useCallback(async () => {
     if (!caseId) return;
@@ -166,7 +200,25 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
         .eq('case_id', caseId)
         .maybeSingle();
       if (qErr) throw qErr;
-      setRecord((data ?? null) as CaseAiAnalysis | null);
+      const current = await buildCaseHash(caseId);
+      setCurrentHash(current);
+
+      if (data) {
+        const lastAccessed = new Date().toISOString();
+        const { data: updated, error: updateErr } = await supabase
+          .from('case_ai_analysis')
+          .update({ last_accessed_at: lastAccessed })
+          .eq('id', (data as CaseAiAnalysis).id)
+          .select('*')
+          .single();
+        if (updateErr) throw updateErr;
+        const next = updated as CaseAiAnalysis;
+        setRecord(next);
+        setStaleAnalysis(Boolean(next.case_hash && next.case_hash !== current));
+      } else {
+        setRecord(null);
+        setStaleAnalysis(false);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load AI analysis.');
     } finally {
@@ -195,10 +247,12 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
       const upsertPayload = {
         case_id: caseId,
         cnr_number: payload.cnrNumber || null,
+        case_hash: currentHash ?? await buildCaseHash(caseId),
         ai_summary: json.summary ?? null,
         ai_json: json.analysis as AiCaseAnalysisJson,
         generated_at: new Date().toISOString(),
         generated_by: user?.profile?.full_name || user?.email || 'Unknown',
+        last_accessed_at: new Date().toISOString(),
       };
 
       const { data, error: upsertErr } = await supabase
@@ -208,6 +262,8 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
         .single();
       if (upsertErr) throw upsertErr;
       setRecord(data as CaseAiAnalysis);
+      setCurrentHash((data as CaseAiAnalysis).case_hash ?? currentHash);
+      setStaleAnalysis(false);
       toast.success(refresh ? 'AI analysis refreshed.' : 'AI analysis generated.');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unable to generate AI analysis.';
@@ -230,6 +286,11 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
           <p className="text-xs text-muted-foreground">
             {record ? `AI Analysis generated on ${fmtDateTime(record.generated_at)}` : 'Generate a structured legal summary from cached case details and internal notes.'}
           </p>
+          {record && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Last Viewed: {fmtDateTime(record.last_accessed_at)}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           {!record ? (
@@ -255,6 +316,12 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
       {!loading && error && (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {error}
+        </div>
+      )}
+
+      {!loading && !error && staleAnalysis && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Case data changed since last AI analysis. Refresh recommended.
         </div>
       )}
 

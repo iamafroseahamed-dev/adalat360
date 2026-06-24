@@ -167,10 +167,12 @@ export interface CaseAiAnalysis {
   id: string;
   case_id: string;
   cnr_number: string | null;
+  case_hash: string | null;
   ai_summary: string | null;
   ai_json: AiCaseAnalysisJson | null;
   generated_at: string;
   generated_by: string | null;
+  last_accessed_at: string;
 }
 
 export interface CauseList {
