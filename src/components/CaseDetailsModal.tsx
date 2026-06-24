@@ -14,6 +14,8 @@ import { CaseTasksTab } from '@/components/CaseTasksTab';
 import { CaseConnectionsTab } from '@/components/CaseConnectionsTab';
 import { getEcourtsCaseType } from '@/config/ecourtsCaseTypes';
 import { supabase } from '@/lib/supabase';
+import { advocateStatusClasses } from '@/lib/caseManagement';
+import type { CaseStatusHistory } from '@/types';
 
 // ── eCourts response shape ──────────────────────────────────────────────────────
 
@@ -358,6 +360,25 @@ export function CaseDetailsModal({
   const [tab, setTab] = useState(initialTab);
   const [summary, setSummary] = useState<{ connections: number; openTasks: number; notes: number } | null>(null);
   const [viewCase, setViewCase] = useState<{ id: string; number: string | null } | null>(null);
+  const [internal, setInternal] = useState<{ courtStatus: string | null; advocateStatus: string | null } | null>(null);
+  const [statusHistory, setStatusHistory] = useState<CaseStatusHistory[]>([]);
+
+  const loadInternalStatus = useCallback(async (id: string) => {
+    try {
+      const [caseRes, histRes] = await Promise.all([
+        supabase.from('cases').select('case_status, advocate_status').eq('id', id).maybeSingle(),
+        supabase.from('case_status_history').select('*').eq('case_id', id).order('changed_at', { ascending: false }),
+      ]);
+      setInternal({
+        courtStatus: (caseRes.data?.case_status as string | null) ?? null,
+        advocateStatus: (caseRes.data?.advocate_status as string | null) ?? null,
+      });
+      setStatusHistory(histRes.error ? [] : ((histRes.data ?? []) as CaseStatusHistory[]));
+    } catch {
+      setInternal(null);
+      setStatusHistory([]);
+    }
+  }, []);
 
   const loadSummary = useCallback(async (id: string) => {
     try {
@@ -509,6 +530,7 @@ export function CaseDetailsModal({
       setSource('eCourts API');
       await queryClient.invalidateQueries();
       onSynced?.();
+      if (caseId) loadInternalStatus(caseId);
 
       // Verification re-fetch — confirms the record still exists & is visible.
       const { data: verifyRow, error: verifyError } = await supabase
@@ -526,7 +548,7 @@ export function CaseDetailsModal({
     } finally {
       setSyncing(false);
     }
-  }, [caseNumber, caseId, queryClient, onSynced]);
+  }, [caseNumber, caseId, queryClient, onSynced, loadInternalStatus]);
 
   useEffect(() => {
     if (open && caseNumber) {
@@ -537,9 +559,10 @@ export function CaseDetailsModal({
   useEffect(() => {
     if (open) {
       setTab(initialTab);
-      if (caseId) loadSummary(caseId); else setSummary(null);
+      if (caseId) { loadSummary(caseId); loadInternalStatus(caseId); }
+      else { setSummary(null); setInternal(null); setStatusHistory([]); }
     }
-  }, [open, caseId, initialTab, loadSummary]);
+  }, [open, caseId, initialTab, loadSummary, loadInternalStatus]);
 
   const refreshing = (loadingApi || loadingCached) && source === null;
 
@@ -626,6 +649,53 @@ export function CaseDetailsModal({
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
+        {/* CLA Internal Status — always shown (independent of eCourts data) */}
+        {internal && (
+          <section className="space-y-4">
+            <SectionTitle>Status</SectionTitle>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-md border bg-muted/20 px-3 py-2.5">
+                <p className="text-xs text-muted-foreground">Court Status</p>
+                <p className="mt-1">
+                  {internal.courtStatus
+                    ? <Badge variant={String(internal.courtStatus).toLowerCase() === 'pending' ? 'warning' : 'secondary'}>{internal.courtStatus}</Badge>
+                    : <span className="text-sm text-muted-foreground">{'\u2014'}</span>}
+                </p>
+                <p className="mt-1.5 text-[10px] text-muted-foreground">From court systems (eCourts / MHC)</p>
+              </div>
+              <div className="rounded-md border bg-muted/20 px-3 py-2.5">
+                <p className="text-xs text-muted-foreground">Advocate Status</p>
+                <p className="mt-1">
+                  {internal.advocateStatus
+                    ? <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${advocateStatusClasses(internal.advocateStatus)}`}>{internal.advocateStatus}</span>
+                    : <span className="text-sm text-muted-foreground">{'\u2014'}</span>}
+                </p>
+                <p className="mt-1.5 text-[10px] text-muted-foreground">Internal CLA / advocate progress</p>
+              </div>
+            </div>
+
+            {statusHistory.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Advocate Status Timeline</p>
+                <ol className="relative space-y-3 border-l border-muted pl-4">
+                  {statusHistory.map(h => (
+                    <li key={h.id} className="relative">
+                      <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-indigo-500 ring-2 ring-background" />
+                      <p className="text-xs font-semibold text-muted-foreground">{fmtDate(h.changed_at)}</p>
+                      <p className="text-sm font-medium">
+                        {h.old_status ? <span className="text-muted-foreground">{h.old_status}{' \u2192 '}</span> : null}
+                        {h.new_status ?? '\u2014'}
+                      </p>
+                      {h.remarks && <p className="text-xs text-muted-foreground">{h.remarks}</p>}
+                      {h.changed_by && <p className="text-[11px] text-muted-foreground">by {h.changed_by}</p>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </section>
+        )}
+
         {(loadingApi || loadingCached) && (
           <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />

@@ -58,6 +58,9 @@ export interface Case {
   import_batch: string | null;
   case_section: string | null;
   followup_status: string | null;
+  // Advocate (internal) activity status — distinct from court case_status
+  // (requires advocate_status.sql)
+  advocate_status?: string | null;
   // Case assignment (requires case_management.sql)
   assigned_advocate_name?: string | null;
   assigned_advocate_email?: string | null;
@@ -74,6 +77,16 @@ export interface Case {
   ecourts_request_id?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CaseStatusHistory {
+  id: string;
+  case_id: string;
+  old_status: string | null;
+  new_status: string | null;
+  remarks: string | null;
+  changed_by: string | null;
+  changed_at: string;
 }
 
 export interface CauseList {

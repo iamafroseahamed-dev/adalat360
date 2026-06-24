@@ -25,6 +25,7 @@ import { CaseDetailsModal } from '@/components/CaseDetailsModal';
 import { TaskFormDialog } from '@/components/TaskFormDialog';
 import { AddConnectionDialog } from '@/components/AddConnectionDialog';
 import { addConnection, loadConnectionCounts, type CaseSearchResult } from '@/lib/connections';
+import { ADVOCATE_STATUSES, advocateStatusClasses, advocateStatusShort } from '@/lib/caseManagement';
 import { useAuth } from '@/lib/auth';
 import type { Case, Advocate } from '@/types';
 
@@ -52,7 +53,7 @@ const EMPTY_FORM: FormData = {
   last_hearing_date: null, last_hearing_update: null, next_hearing_date: null,
   advocate_name: null, advocate_mobile: null, advocate_email: null,
   client_name: null, client_mobile: null, client_whatsapp: null, client_email: null,
-  follow_up_status: null, active: true,
+  follow_up_status: null, active: true, advocate_status: null,
 };
 
 interface Filters {
@@ -86,6 +87,15 @@ function SensitivityBadge({ sensitivity }: { sensitivity: string | null }) {
   if (sensitivity === 'Sensitive') return <Badge variant="purple">Sensitive</Badge>;
   if (sensitivity === 'Non-Sensitive') return <Badge variant="outline">Non-Sensitive</Badge>;
   return null;
+}
+
+function AdvocateStatusBadge({ status }: { status: string | null | undefined }) {
+  if (!status) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${advocateStatusClasses(status)}`} title={status}>
+      {advocateStatusShort(status)}
+    </span>
+  );
 }
 
 function SectionHeader({ title }: { title: string }) {
@@ -274,6 +284,22 @@ function CaseForm({ initial, advocates, onSave, onCancel, saving }: {
             <Input value={form.assigned_advocate_mobile ?? ''} onChange={txt('assigned_advocate_mobile')} placeholder="+91…" />
           </Field>
         </div>
+      </div>
+
+      <div className="space-y-3">
+        <SectionHeader title="Advocate Activity Status" />
+        <p className="text-[11px] text-muted-foreground -mt-1">
+          Internal progress of the advocate / CLA team on this case — separate from the court status, which is updated automatically from the court systems.
+        </p>
+        <Field label="Advocate Status">
+          <Select value={form.advocate_status ?? '__none__'} onValueChange={sel('advocate_status')}>
+            <SelectTrigger><SelectValue placeholder="Select activity status" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">— None —</SelectItem>
+              {ADVOCATE_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Field>
       </div>
 
       <div className="space-y-3">
@@ -530,6 +556,20 @@ export default function CasesPage() {
   const hasFilters = search || Object.values(filters).some(Boolean);
   const clearFilters = () => { setSearch(''); setFilters(EMPTY_FILTERS); };
 
+  // Record an advocate-status change in the audit trail (case_status_history).
+  // Best-effort: never blocks the save if the table is missing.
+  async function logAdvocateStatusChange(caseId: string, oldStatus: string | null, newStatus: string | null) {
+    try {
+      await supabase.from('case_status_history').insert({
+        case_id: caseId,
+        old_status: oldStatus,
+        new_status: newStatus,
+        changed_by: createdBy,
+        changed_at: new Date().toISOString(),
+      });
+    } catch { /* case_status_history may not exist yet */ }
+  }
+
   const handleSave = async (data: FormData, extras: CaseFormExtras) => {
     setSaving(true);
     const now = new Date().toISOString();
@@ -542,6 +582,7 @@ export default function CasesPage() {
           .insert(payload).select('id').single();
         if (err) throw err;
         caseId = inserted!.id as string;
+        if (data.advocate_status) await logAdvocateStatusChange(caseId, null, data.advocate_status);
         toast.success('Case added successfully');
       } else if (dialogMode === 'edit' && selected) {
         const payload: Record<string, unknown> = { ...data, updated_at: now };
@@ -551,6 +592,9 @@ export default function CasesPage() {
           .eq('id', selected.id);
         if (err) throw err;
         caseId = selected.id;
+        if ((data.advocate_status ?? null) !== (selected.advocate_status ?? null)) {
+          await logAdvocateStatusChange(caseId, selected.advocate_status ?? null, data.advocate_status ?? null);
+        }
         toast.success('Case updated successfully');
       } else {
         setSaving(false);
@@ -809,7 +853,7 @@ export default function CasesPage() {
           ) : filtered.length === 0 ? (
             <div className="py-20 text-center text-sm text-muted-foreground">No cases match your current filters.</div>
           ) : (
-            <Table className="min-w-[1440px]">
+            <Table className="min-w-[1580px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-36">Case No.</TableHead>
@@ -820,6 +864,7 @@ export default function CasesPage() {
                   <TableHead>Petitioner</TableHead>
                   <TableHead>Respondent</TableHead>
                   <TableHead className="w-24">Case Status</TableHead>
+                  <TableHead className="w-36">Advocate Status</TableHead>
                   <TableHead className="w-28">Next Hearing</TableHead>
                   <TableHead className="w-44">Assigned Advocate</TableHead>
                   <TableHead className="w-28">Connected</TableHead>
@@ -839,6 +884,7 @@ export default function CasesPage() {
                     <TableCell className="text-xs max-w-[160px] truncate" title={c.petitioner ?? ''}>{c.petitioner || '—'}</TableCell>
                     <TableCell className="text-xs max-w-[160px] truncate" title={c.respondent ?? ''}>{c.respondent || '—'}</TableCell>
                     <TableCell><CaseStatusBadge status={c.case_status} /></TableCell>
+                    <TableCell><AdvocateStatusBadge status={c.advocate_status} /></TableCell>
                     <TableCell className="text-xs">{fmtDate(c.next_hearing_date)}</TableCell>
                     <TableCell className="text-xs">
                       {c.assigned_advocate_name ? (
@@ -976,6 +1022,19 @@ export default function CasesPage() {
                 {selected.cnr_number && <DialogDescription className="font-mono">{selected.cnr_number}</DialogDescription>}
               </DialogHeader>
               <div className="space-y-6 mt-2">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1 mb-3">Status</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Court Status</p>
+                      <div><CaseStatusBadge status={selected.case_status} /></div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Advocate Status</p>
+                      <div><AdvocateStatusBadge status={selected.advocate_status} /></div>
+                    </div>
+                  </div>
+                </div>
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1 mb-3">Parties</p>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
