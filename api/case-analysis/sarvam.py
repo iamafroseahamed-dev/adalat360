@@ -391,11 +391,15 @@ class handler(BaseHTTPRequestHandler):
             self._json({'success': False, 'message': 'Invalid JSON body.'}, 400)
             return
 
-        case_number = str(body.get('caseNumber') or '').strip()
         context = body.get('context')
-        if not case_number or not isinstance(context, dict):
-            self._json({'success': False, 'message': 'caseNumber and context are required.'}, 400)
-            return
+        if not isinstance(context, dict):
+            context = {}
+        case_number = (
+            str(body.get('caseNumber') or '')
+            or str((context.get('caseNumber') or context.get('case_number') or ''))
+        ).strip()
+        if not case_number:
+            case_number = 'UNKNOWN'
 
         prompt_context = _compact_context(context)
         payload = _make_payload(case_number, prompt_context, structured=False)
@@ -429,6 +433,22 @@ class handler(BaseHTTPRequestHandler):
             return
         if resp.status_code == 429:
             self._json({'success': False, 'message': 'Sarvam AI quota or rate limit reached. Please retry later.'}, 429)
+            return
+
+        if resp.status_code == 400 or resp.status_code == 422:
+            sarvam_msg = f'Sarvam AI rejected the request (HTTP {resp.status_code}).'
+            try:
+                err_body = resp.json()
+                err_detail = _as_dict(err_body).get('error') or err_body
+                if isinstance(err_detail, dict):
+                    sarvam_msg = str(err_detail.get('message') or sarvam_msg)
+                elif isinstance(err_detail, str):
+                    sarvam_msg = err_detail
+                else:
+                    sarvam_msg = f'{sarvam_msg} {json.dumps(err_body)[:300]}'
+            except Exception:
+                sarvam_msg = f'{sarvam_msg} {resp.text[:300]}'
+            self._json({'success': False, 'message': sarvam_msg, 'detail': resp.text[:500]}, 502)
             return
 
         try:

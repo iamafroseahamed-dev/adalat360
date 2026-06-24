@@ -266,9 +266,15 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
       const resp = await fetch('/api/case-analysis/sarvam', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ caseId, caseNumber, context: payload.context }),
+        body: JSON.stringify({ caseId, caseNumber: caseNumber ?? null, context: payload.context }),
       });
-      const json = await resp.json() as AiAnalysisResponse;
+      let json: AiAnalysisResponse | null = null;
+      try {
+        json = await resp.json() as AiAnalysisResponse;
+      } catch {
+        const raw = await resp.text().catch(() => '');
+        throw new Error(raw.trim() || `Request failed (HTTP ${resp.status})`);
+      }
       if (!resp.ok || !json?.success) throw new Error(buildAiErrorMessage(json));
 
       const upsertPayload = {
