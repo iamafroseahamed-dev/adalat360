@@ -42,14 +42,14 @@ export default function LoginPage() {
           <div className="mb-2 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 shadow-lg sm:h-16 sm:w-16">
             <Scale className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white sm:text-3xl">Litigo</h1>
-          <p className="text-blue-200 text-sm">Legal Case Management &amp; Court Intelligence Platform</p>
+          <h1 className="text-2xl font-bold text-white sm:text-3xl">Adalat360</h1>
+          <p className="text-blue-200 text-sm">Litigation Management &amp; Monitoring System</p>
         </div>
 
         {/* Login Card */}
         <Card className="border-0 shadow-2xl">
           <CardHeader className="pb-4">
-          <CardTitle>Sign In to Litigo</CardTitle>
+          <CardTitle>Welcome to Adalat360</CardTitle>
           <CardDescription>Enter your organisation credentials to access the platform</CardDescription>
           </CardHeader>
           <CardContent>

@@ -128,7 +128,7 @@ export function TaskFormDialog({
       `Due Date: ${form.due_date ? fmtDate(form.due_date) : '\u2014'}`,
       `Assigned By: ${assignedBy}`,
       '',
-      'Please login to Litigo to review the case.',
+      'Please login to Adalat360 to review the case.',
     ].join('\n');
   }
 

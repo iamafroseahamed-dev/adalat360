@@ -307,9 +307,9 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="text-xl font-semibold">Litigation Command Center</h1>
+        <h1 className="text-xl font-semibold">Welcome to Adalat360</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Live case monitoring, hearings &amp; litigation analytics · auto-refreshes every 5 minutes
+          Monitor litigation, hearings, listings, advocates and compliance activities from a single platform.
         </p>
       </div>
 

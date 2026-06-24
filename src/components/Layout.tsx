@@ -77,8 +77,8 @@ function Sidebar({
           </div>
           {!collapsed && (
             <div className="overflow-hidden pr-8 lg:pr-0">
-              <p className="truncate text-sm font-bold leading-tight">{user?.organization.organization_name}</p>
-              <p className="truncate text-xs text-sidebar-foreground/60">Litigo · Legal Intelligence Platform</p>
+              <p className="truncate text-sm font-bold leading-tight">Adalat360</p>
+              <p className="truncate text-xs text-sidebar-foreground/60">Government Litigation Platform</p>
             </div>
           )}
         </div>
@@ -127,6 +127,9 @@ function Sidebar({
             <LogOut className="h-4 w-4 flex-shrink-0" />
             {!collapsed && <span>Logout</span>}
           </button>
+          {!collapsed && (
+            <p className="px-2 pt-1 text-center text-[10px] text-sidebar-foreground/40">Powered by Adalat360</p>
+          )}
         </div>
 
         {/* Collapse toggle */}
@@ -189,7 +192,7 @@ export function Layout() {
   const title =
     Object.entries(PAGE_TITLES).find(
       ([path]) => location.pathname === path || location.pathname.startsWith(path + '/'),
-    )?.[1] ?? 'Litigo';
+    )?.[1] ?? 'Adalat360';
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
