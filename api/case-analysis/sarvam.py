@@ -330,14 +330,146 @@ def _compact_context(context: Dict[str, Any]) -> str:
         'internalTasks': _truncate(context.get('internalTasks'), 250),
         'advocateStatusTimeline': _truncate(context.get('advocateStatusTimeline'), 250),
     }
-    return json.dumps(compact, ensure_ascii=False)[:18000]
+    return json.dumps(compact, ensure_ascii=False)[:9000]
+
+
+def _to_list(value: Any) -> list:
+    """Coerce a value into a list of non-empty strings."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            text = str(item).strip()
+            if text:
+                out.append(text)
+        return out
+    text = str(value).strip()
+    if not text:
+        return []
+    # Split common multi-value separators coming from case detail strings.
+    parts = re.split(r'\s*[\n;|]\s*', text)
+    return [p.strip() for p in parts if p.strip()] or [text]
+
+
+def _str_or(value: Any, default: str = 'Not available') -> str:
+    text = str(value).strip() if value is not None else ''
+    return text or default
+
+
+def _int_or(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _factual_sections(context: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the deterministic sections from case context so the model only has
+    to produce the narrative/analytical fields. This keeps the model's output
+    (and reasoning) small enough to fit the starter-tier token budget."""
+    record = _as_dict(context.get('caseRecord'))
+    details = _as_dict(context.get('caseDetailsJson'))
+
+    return {
+        'parties': {
+            'petitioners': _to_list(details.get('petitioners')),
+            'respondents': _to_list(details.get('respondents')),
+            'advocates': _to_list(details.get('petitionerAdvocates')) + _to_list(details.get('respondentAdvocates')),
+        },
+        'case_status': {
+            'status': _str_or(details.get('caseStatus') or record.get('case_status')),
+            'current_stage': _str_or(details.get('judicialSection') or record.get('section')),
+        },
+        'hearing_analysis': {
+            'total_hearings': _int_or(details.get('hearingCount')),
+        },
+        'timeline_summary': {
+            'filing_date': _str_or(details.get('filingDate') or details.get('registrationDate')),
+            'first_hearing': _str_or(details.get('firstHearingDate')),
+            'last_hearing': _str_or(details.get('lastHearingDate')),
+            'next_hearing': _str_or(details.get('nextHearingDate') or record.get('next_hearing_date')),
+        },
+    }
+
+
+def _normalize_analysis(narrative: Dict[str, Any], factual: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge the model's compact narrative output with deterministic factual
+    sections into the full AiCaseAnalysisJson shape the frontend expects."""
+    narrative = _as_dict(narrative)
+
+    level = str(narrative.get('risk_level') or 'Medium').strip().title()
+    if level not in ('Low', 'Medium', 'High'):
+        level = 'Medium'
+
+    parties = _as_dict(factual.get('parties'))
+    case_status = _as_dict(factual.get('case_status'))
+    hearing = _as_dict(factual.get('hearing_analysis'))
+    timeline = _as_dict(factual.get('timeline_summary'))
+
+    return {
+        'executive_summary': {
+            'case_about': _str_or(narrative.get('case_about'), 'Not available'),
+            'key_dispute': _str_or(narrative.get('key_dispute'), 'Not available'),
+        },
+        'parties': {
+            'petitioners': _to_list(parties.get('petitioners')),
+            'respondents': _to_list(parties.get('respondents')),
+            'advocates': _to_list(parties.get('advocates')),
+        },
+        'case_status': {
+            'status': _str_or(case_status.get('status')),
+            'current_stage': _str_or(case_status.get('current_stage')),
+        },
+        'hearing_analysis': {
+            'total_hearings': _int_or(hearing.get('total_hearings')),
+            'hearing_trend': _str_or(narrative.get('hearing_trend'), 'Not analysed'),
+            'delays': _str_or(narrative.get('delays'), 'Not analysed'),
+        },
+        'key_legal_observations': {
+            'important_legal_issues': _to_list(narrative.get('important_legal_issues')),
+            'risks': _to_list(narrative.get('risks')),
+            'potential_impact': _to_list(narrative.get('potential_impact')),
+        },
+        'timeline_summary': {
+            'filing_date': _str_or(timeline.get('filing_date')),
+            'first_hearing': _str_or(timeline.get('first_hearing')),
+            'last_hearing': _str_or(timeline.get('last_hearing')),
+            'next_hearing': _str_or(timeline.get('next_hearing')),
+        },
+        'advocate_action_items': {
+            'immediate_actions': _to_list(narrative.get('immediate_actions')),
+            'documents_required': _to_list(narrative.get('documents_required')),
+            'follow_up_recommendations': _to_list(narrative.get('follow_up_recommendations')),
+        },
+        'risk_assessment': {
+            'level': level,
+            'reason': _str_or(narrative.get('risk_reason'), 'Not available'),
+        },
+        'department_impact': {
+            'organization_impact': _str_or(narrative.get('organization_impact'), 'Not available'),
+            'department_impact': _str_or(narrative.get('department_impact'), 'Not available'),
+        },
+        'recommended_next_steps': _to_list(narrative.get('recommended_next_steps')),
+        'attention_required': bool(narrative.get('attention_required')),
+        'no_activity': bool(narrative.get('no_activity')),
+        'long_pending': bool(narrative.get('long_pending')),
+        'upcoming_hearing': bool(narrative.get('upcoming_hearing')),
+    }
 
 
 def _make_payload(case_number: str, prompt_context: str, structured: bool, reasoning_effort: Any = 'low') -> Dict[str, Any]:
     user_content = (
-        'Analyse the following case and provide: executive summary, parties, case status, hearing analysis, legal observations, timeline summary, advocate action items, risk assessment, department impact, and recommended next steps. '
-        'Also classify attention_required, no_activity, long_pending, and upcoming_hearing as booleans. '
-        'Return valid JSON only, with no markdown fences and no explanatory text outside the JSON object.\n\n'
+        'Return ONLY this compact JSON object (no markdown, no extra text). Keep every string under 25 words and every array to at most 3 short items:\n'
+        '{'
+        '"case_about":"","key_dispute":"",'
+        '"important_legal_issues":[],"risks":[],"potential_impact":[],'
+        '"immediate_actions":[],"documents_required":[],"follow_up_recommendations":[],'
+        '"risk_level":"Low|Medium|High","risk_reason":"",'
+        '"organization_impact":"","department_impact":"",'
+        '"recommended_next_steps":[],'
+        '"attention_required":false,"no_activity":false,"long_pending":false,"upcoming_hearing":false'
+        '}\n\n'
         f'Case Number: {case_number}\n\n'
         f'Context JSON:\n{prompt_context}'
     )
@@ -350,9 +482,9 @@ def _make_payload(case_number: str, prompt_context: str, structured: bool, reaso
             {
                 'role': 'system',
                 'content': (
-                    'You are a senior Indian litigation analyst. Analyse the court case context provided and produce a concise, practical, legally-aware summary for an internal government litigation team. '
-                    'Be factual, do not invent facts, and if data is missing state that clearly. Focus on actionable insights, risk, hearing progress, and department impact. '
-                    'Always output a single JSON object and nothing else.'
+                    'You are a senior Indian litigation analyst for a government legal team. '
+                    'Respond immediately with the requested JSON object only. Do not deliberate, do not show reasoning, do not add commentary. '
+                    'Be factual and concise; if data is missing, use a short placeholder like "Not available". Output one JSON object and nothing else.'
                 ),
             },
             {
@@ -417,6 +549,7 @@ class handler(BaseHTTPRequestHandler):
             case_number = 'UNKNOWN'
 
         prompt_context = _compact_context(context)
+        factual = _factual_sections(context)
         # Reasoning disabled (reasoning_effort=None) so the full 4096-token budget
         # goes to the JSON output instead of being consumed by chain-of-thought.
         payload = _make_payload(case_number, prompt_context, structured=False, reasoning_effort=None)
@@ -517,6 +650,7 @@ class handler(BaseHTTPRequestHandler):
                 }, 502)
                 return
 
+        analysis = _normalize_analysis(analysis, factual)
         self._json({
             'success': True,
             'summary': _summary_text(analysis),
