@@ -63,6 +63,8 @@ export interface Case {
   assigned_advocate_email?: string | null;
   assigned_advocate_mobile?: string | null;
   assigned_on?: string | null;
+  // Connected / parent-child cases (requires connected_cases.sql)
+  parent_case_id?: string | null;
   // eCourts discovery (set after first captcha lookup — requires migration 005)
   ecourts_case_no?: string | null;
   cnr_discovered_at?: string | null;
@@ -375,4 +377,30 @@ export interface CaseTask {
   email_notification_sent: boolean | null;
   email_notification_sent_at: string | null;
   email_notification_status: EmailNotificationStatus | null;
+}
+
+// ── Connected cases (requires connected_cases.sql) ─────────────────────────
+export type RelationshipType =
+  | 'Connected' | 'WMP' | 'Appeal' | 'Review' | 'Contempt'
+  | 'Interim Application' | 'Transfer' | 'Related Matter';
+
+export interface CaseConnection {
+  id: string;
+  parent_case_id: string;
+  connected_case_id: string;
+  relationship_type: string;
+  created_at: string;
+}
+
+// A connection resolved to the "other" case relative to the case being viewed.
+export interface ConnectedCaseRow {
+  connectionId: string;
+  relationship_type: string;
+  case: {
+    id: string;
+    case_number: string | null;
+    court_name: string | null;
+    case_status: string | null;
+    next_hearing_date: string | null;
+  };
 }
