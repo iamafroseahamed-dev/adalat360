@@ -18,7 +18,6 @@ import {
 } from '@/components/ui/dialog';
 import { CaseDetailsModal } from '@/components/CaseDetailsModal';
 import type { TodayMatchedListing } from '@/types';
-import ReactECharts from 'echarts-for-react/esm/core';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
