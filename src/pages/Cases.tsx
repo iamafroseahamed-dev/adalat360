@@ -15,10 +15,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Plus, Search, Edit2, Eye, ExternalLink, FileText, Filter, Loader2, X, PowerOff, RefreshCw, Download, Scale, UserPlus, ListPlus } from 'lucide-react';
+import { Plus, Search, Edit2, Eye, ExternalLink, FileText, Filter, Loader2, X, PowerOff, RefreshCw, Download, Scale, UserPlus, ListPlus, Link2, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { CaseDetailsModal } from '@/components/CaseDetailsModal';
 import { TaskFormDialog } from '@/components/TaskFormDialog';
+import { AddConnectionDialog } from '@/components/AddConnectionDialog';
+import { addConnection, loadConnectionCounts, type CaseSearchResult } from '@/lib/connections';
+import { useAuth } from '@/lib/auth';
 import type { Case, Advocate } from '@/types';
 
 const COURTS = [
@@ -31,6 +34,12 @@ const CASE_STATUSES = ['Active', 'Pending', 'Disposed'];
 const FOLLOW_UP_STATUSES = ['Urgent', 'Update Required', 'No Action'];
 
 type FormData = Omit<Case, 'id' | 'organization_id' | 'created_at' | 'updated_at' | 'source_file' | 'source_sheet' | 'import_batch' | 'case_section' | 'followup_status' | 'ecourts_case_no' | 'cnr_discovered_at'>;
+
+const TASK_PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'];
+
+interface DraftTask { task_title: string; priority: string; due_date: string | null; }
+interface DraftConnection { case: CaseSearchResult; relationship_type: string; }
+interface CaseFormExtras { notes: string[]; tasks: DraftTask[]; connections: DraftConnection[]; }
 
 const EMPTY_FORM: FormData = {
   cnr_number: null, case_number: '', court_name: null, district: null, section: null,
@@ -98,15 +107,34 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-function CaseForm({ initial, onSave, onCancel, saving }: {
-  initial: FormData; onSave: (d: FormData) => void; onCancel: () => void; saving: boolean;
+function CaseForm({ initial, advocates, onSave, onCancel, saving }: {
+  initial: FormData; advocates: Advocate[]; onSave: (d: FormData, extras: CaseFormExtras) => void; onCancel: () => void; saving: boolean;
 }) {
   const [form, setForm] = useState<FormData>(initial);
+  const [notes, setNotes] = useState<string[]>([]);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [tasks, setTasks] = useState<DraftTask[]>([]);
+  const [taskDraft, setTaskDraft] = useState<DraftTask>({ task_title: '', priority: 'Medium', due_date: null });
+  const [connections, setConnections] = useState<DraftConnection[]>([]);
+  const [connOpen, setConnOpen] = useState(false);
 
   const txt = (f: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm(p => ({ ...p, [f]: e.target.value || null }));
   const sel = (f: keyof FormData) => (v: string) =>
     setForm(p => ({ ...p, [f]: v === '__none__' ? null : v }));
+
+  const assignAdvocate = (id: string) => {
+    if (id === '__none__') {
+      setForm(p => ({ ...p, assigned_advocate_name: null, assigned_advocate_email: null, assigned_advocate_mobile: null }));
+      return;
+    }
+    const adv = advocates.find(a => a.id === id);
+    if (adv) setForm(p => ({ ...p, assigned_advocate_name: adv.advocate_name, assigned_advocate_email: adv.email, assigned_advocate_mobile: adv.mobile }));
+  };
+  const selectedAdvocateId = advocates.find(a => a.advocate_name === form.assigned_advocate_name)?.id ?? '__none__';
+
+  const addNote = () => { const v = noteDraft.trim(); if (!v) return; setNotes(p => [...p, v]); setNoteDraft(''); };
+  const addTask = () => { const t = taskDraft.task_title.trim(); if (!t) return; setTasks(p => [...p, { ...taskDraft, task_title: t }]); setTaskDraft({ task_title: '', priority: 'Medium', due_date: null }); };
 
   return (
     <div className="overflow-y-auto max-h-[65vh] pr-1 space-y-5">
@@ -223,6 +251,97 @@ function CaseForm({ initial, onSave, onCancel, saving }: {
         </Field>
       </div>
 
+      <div className="space-y-3">
+        <SectionHeader title="Advocate Assignment" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Assigned Advocate">
+            <Select value={selectedAdvocateId} onValueChange={assignAdvocate}>
+              <SelectTrigger><SelectValue placeholder="Select advocate" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">— Unassigned —</SelectItem>
+                {advocates.map(a => <SelectItem key={a.id} value={a.id}>{a.advocate_name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Advocate Email">
+            <Input value={form.assigned_advocate_email ?? ''} onChange={txt('assigned_advocate_email')} placeholder="advocate@example.com" />
+          </Field>
+          <Field label="Advocate Mobile">
+            <Input value={form.assigned_advocate_mobile ?? ''} onChange={txt('assigned_advocate_mobile')} placeholder="+91…" />
+          </Field>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <SectionHeader title="Notes" />
+        <div className="flex gap-2">
+          <Input placeholder="Add a note…" value={noteDraft}
+            onChange={e => setNoteDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addNote(); } }} />
+          <Button type="button" variant="outline" onClick={addNote}><Plus className="h-4 w-4" /></Button>
+        </div>
+        {notes.length > 0 && (
+          <ul className="space-y-1">
+            {notes.map((n, i) => (
+              <li key={i} className="flex items-start justify-between gap-2 rounded-md border bg-muted/30 px-2.5 py-1.5 text-xs">
+                <span className="whitespace-pre-wrap">{n}</span>
+                <button type="button" className="text-red-500 hover:text-red-700" onClick={() => setNotes(p => p.filter((_, j) => j !== i))}><X className="h-3.5 w-3.5" /></button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <SectionHeader title="Tasks" />
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
+          <Input placeholder="Task title…" value={taskDraft.task_title}
+            onChange={e => setTaskDraft(p => ({ ...p, task_title: e.target.value }))} />
+          <Select value={taskDraft.priority} onValueChange={v => setTaskDraft(p => ({ ...p, priority: v }))}>
+            <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+            <SelectContent>{TASK_PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+          </Select>
+          <Input type="date" className="w-40" value={taskDraft.due_date ?? ''}
+            onChange={e => setTaskDraft(p => ({ ...p, due_date: e.target.value || null }))} />
+          <Button type="button" variant="outline" onClick={addTask}><Plus className="h-4 w-4" /></Button>
+        </div>
+        {tasks.length > 0 && (
+          <ul className="space-y-1">
+            {tasks.map((t, i) => (
+              <li key={i} className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-2.5 py-1.5 text-xs">
+                <span className="truncate">{t.task_title} · <span className="text-muted-foreground">{t.priority}{t.due_date ? ` · ${t.due_date}` : ''}</span></span>
+                <button type="button" className="text-red-500 hover:text-red-700" onClick={() => setTasks(p => p.filter((_, j) => j !== i))}><X className="h-3.5 w-3.5" /></button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <SectionHeader title="Connected Cases" />
+        <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => setConnOpen(true)}>
+          <Link2 className="h-3.5 w-3.5" /> Add Connected Case
+        </Button>
+        {connections.length > 0 && (
+          <ul className="space-y-1">
+            {connections.map((c, i) => (
+              <li key={c.case.id} className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-2.5 py-1.5 text-xs">
+                <span className="truncate font-mono">{c.case.case_number} <span className="ml-1 rounded-full bg-indigo-100 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-indigo-700">{c.relationship_type}</span></span>
+                <button type="button" className="text-red-500 hover:text-red-700" onClick={() => setConnections(p => p.filter((_, j) => j !== i))}><Trash2 className="h-3.5 w-3.5" /></button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <AddConnectionDialog
+          open={connOpen}
+          onOpenChange={setConnOpen}
+          excludeIds={connections.map(c => c.case.id)}
+          onAdd={(row, relationship) => {
+            setConnections(p => p.some(c => c.case.id === row.id) ? p : [...p, { case: row, relationship_type: relationship }]);
+          }}
+        />
+      </div>
+
       <div className="flex items-center gap-3 border-t pt-3">
         <Switch checked={form.active} onCheckedChange={v => setForm(p => ({ ...p, active: v }))} id="active-sw" />
         <Label htmlFor="active-sw">Active Case</Label>
@@ -230,7 +349,7 @@ function CaseForm({ initial, onSave, onCancel, saving }: {
 
       <DialogFooter className="pt-2 sticky bottom-0 bg-background pb-1">
         <Button variant="outline" onClick={onCancel}>Cancel</Button>
-        <Button onClick={() => onSave(form)} disabled={!form.case_number || saving}>
+        <Button onClick={() => onSave(form, { notes, tasks, connections })} disabled={!form.case_number || saving}>
           {saving ? 'Saving…' : 'Save Case'}
         </Button>
       </DialogFooter>
@@ -274,6 +393,7 @@ export default function CasesPage() {
   const [caseDetailsOpen, setCaseDetailsOpen]   = useState(false);
   const [caseDetailsNumber, setCaseDetailsNumber] = useState<string | null>(null);
   const [caseDetailsId, setCaseDetailsId]       = useState<string | null>(null);
+  const [caseDetailsTab, setCaseDetailsTab]     = useState<string>('overview');
 
   // ── Advocate assignment ──────────────────────────────────────────────────────
   const [advocates, setAdvocates]           = useState<Advocate[]>([]);
@@ -284,6 +404,16 @@ export default function CasesPage() {
   // ── Task management ──────────────────────────────────────────────────────────
   const [taskCase, setTaskCase]             = useState<Case | null>(null);
   const [taskCounts, setTaskCounts]         = useState<Record<string, { open: number; overdue: number }>>({});
+
+  // ── Connected cases counts ───────────────────────────────────────────────────
+  const [connCounts, setConnCounts]         = useState<Record<string, number>>({});
+  const { user } = useAuth();
+  const createdBy = user?.profile?.full_name || user?.email || 'Unknown';
+
+  const loadConnCounts = useCallback(async () => {
+    try { setConnCounts(await loadConnectionCounts()); } catch { /* table may not exist yet */ }
+  }, []);
+  useEffect(() => { loadConnCounts(); }, [loadConnCounts]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -378,25 +508,55 @@ export default function CasesPage() {
   const hasFilters = search || Object.values(filters).some(Boolean);
   const clearFilters = () => { setSearch(''); setFilters(EMPTY_FILTERS); };
 
-  const handleSave = async (data: FormData) => {
+  const handleSave = async (data: FormData, extras: CaseFormExtras) => {
     setSaving(true);
     const now = new Date().toISOString();
     try {
+      let caseId: string;
       if (dialogMode === 'add') {
-        const { error: err } = await supabase.from('cases').insert({
-          ...data, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-        });
+        const payload: Record<string, unknown> = { ...data, created_at: now, updated_at: now };
+        if (data.assigned_advocate_name) payload.assigned_on = now;
+        const { data: inserted, error: err } = await supabase.from('cases')
+          .insert(payload).select('id').single();
         if (err) throw err;
+        caseId = inserted!.id as string;
         toast.success('Case added successfully');
       } else if (dialogMode === 'edit' && selected) {
+        const payload: Record<string, unknown> = { ...data, updated_at: now };
+        if (data.assigned_advocate_name && !selected.assigned_on) payload.assigned_on = now;
         const { error: err } = await supabase.from('cases')
-          .update({ ...data, updated_at: now })
+          .update(payload)
           .eq('id', selected.id);
         if (err) throw err;
+        caseId = selected.id;
         toast.success('Case updated successfully');
+      } else {
+        setSaving(false);
+        return;
       }
+
+      // Persist draft notes, tasks and connections created in the form.
+      if (extras.notes.length) {
+        await supabase.from('case_notes').insert(
+          extras.notes.map(n => ({ case_id: caseId, note_text: n, created_by: createdBy, created_at: new Date().toISOString() })),
+        );
+      }
+      if (extras.tasks.length) {
+        await supabase.from('case_tasks').insert(
+          extras.tasks.map(t => ({
+            case_id: caseId, task_title: t.task_title, priority: t.priority,
+            due_date: t.due_date, task_status: 'Pending', created_by: createdBy,
+            created_at: new Date().toISOString(),
+          })),
+        );
+      }
+      for (const c of extras.connections) {
+        try { await addConnection(caseId, c.case.id, c.relationship_type); }
+        catch (e) { toast.error(e instanceof Error ? e.message : 'A connection could not be saved.'); }
+      }
+
       setDialogMode(null);
-      await load();
+      await Promise.all([load(), loadTaskCounts(), loadConnCounts()]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : (err as { message?: string }).message ?? 'Failed to save');
     } finally {
@@ -625,7 +785,7 @@ export default function CasesPage() {
           ) : filtered.length === 0 ? (
             <div className="py-20 text-center text-sm text-muted-foreground">No cases match your current filters.</div>
           ) : (
-            <Table className="min-w-[1320px]">
+            <Table className="min-w-[1440px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-36">Case No.</TableHead>
@@ -638,6 +798,7 @@ export default function CasesPage() {
                   <TableHead className="w-24">Case Status</TableHead>
                   <TableHead className="w-28">Next Hearing</TableHead>
                   <TableHead className="w-44">Assigned Advocate</TableHead>
+                  <TableHead className="w-28">Connected</TableHead>
                   <TableHead className="w-24">Open Tasks</TableHead>
                   <TableHead className="w-24">Overdue Tasks</TableHead>
                   <TableHead className="w-32 text-right">Actions</TableHead>
@@ -665,6 +826,16 @@ export default function CasesPage() {
                       ) : (
                         <span className="text-muted-foreground">Unassigned</span>
                       )}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {connCounts[c.id]
+                        ? <button type="button" title="View connected cases"
+                            className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-200"
+                            onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsId(c.id); setCaseDetailsTab('connected'); setCaseDetailsOpen(true); }}>
+                            <Link2 className="h-3 w-3" />{connCounts[c.id]}
+                          </button>
+                        : <button type="button" title="View connected cases" className="text-muted-foreground hover:text-foreground"
+                            onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsId(c.id); setCaseDetailsTab('connected'); setCaseDetailsOpen(true); }}>0</button>}
                     </TableCell>
                     <TableCell className="text-xs">
                       {taskCounts[c.id]?.open
@@ -697,7 +868,7 @@ export default function CasesPage() {
                         </Button>
                         <Button size="icon" variant="ghost" className="h-8 w-8 text-primary" title="Case Details"
                           disabled={!c.case_number}
-                          onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsId(c.id); setCaseDetailsOpen(true); }}>
+                          onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsId(c.id); setCaseDetailsTab('overview'); setCaseDetailsOpen(true); }}>
                           <Scale className="w-3.5 h-3.5" />
                         </Button>
                         <Button size="icon" variant="ghost" className="h-8 w-8" title="Assign Advocate"
@@ -726,6 +897,7 @@ export default function CasesPage() {
           </DialogHeader>
           <CaseForm
             initial={dialogMode === 'edit' && selected ? { ...selected } as FormData : EMPTY_FORM}
+            advocates={advocates}
             onSave={handleSave}
             onCancel={() => setDialogMode(null)}
             saving={saving}
@@ -965,8 +1137,9 @@ export default function CasesPage() {
         caseNumber={caseDetailsNumber}
         caseId={caseDetailsId}
         open={caseDetailsOpen}
-        onOpenChange={setCaseDetailsOpen}
+        onOpenChange={(o) => { setCaseDetailsOpen(o); if (!o) { setCaseDetailsTab('overview'); loadConnCounts(); } }}
         allowSync
+        initialTab={caseDetailsTab}
         onSynced={load}
       />
 

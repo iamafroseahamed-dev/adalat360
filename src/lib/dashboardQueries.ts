@@ -70,3 +70,37 @@ export async function fetchRecentListings(): Promise<RecentListing[]> {
   if (error) throw new Error(error.message);
   return (data ?? []) as RecentListing[];
 }
+
+// Top cases by number of connections (both directions). Degrades to [] if the
+// case_connections table doesn't exist yet.
+export async function fetchMostConnectedCases(): Promise<CategoryCount[]> {
+  try {
+    const { data, error } = await supabase
+      .from('case_connections')
+      .select('parent_case_id, connected_case_id');
+    if (error) return [];
+
+    const counts: Record<string, number> = {};
+    (data ?? []).forEach(r => {
+      counts[r.parent_case_id as string] = (counts[r.parent_case_id as string] ?? 0) + 1;
+      counts[r.connected_case_id as string] = (counts[r.connected_case_id as string] ?? 0) + 1;
+    });
+
+    const topIds = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([id]) => id);
+    if (topIds.length === 0) return [];
+
+    const { data: cs } = await supabase
+      .from('cases')
+      .select('id, case_number')
+      .in('id', topIds);
+    const byId = new Map((cs ?? []).map(c => [c.id as string, c.case_number as string | null]));
+
+    return topIds.map(id => ({ label: byId.get(id) || '—', value: counts[id] }));
+  } catch {
+    return [];
+  }
+}
+

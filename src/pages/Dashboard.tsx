@@ -13,12 +13,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
   Briefcase, Clock, CheckCircle2, CalendarDays, CalendarClock, Gavel,
-  ChevronLeft, ChevronRight, ListTodo, AlertTriangle,
+  ChevronLeft, ChevronRight, ListTodo, AlertTriangle, Link2,
 } from 'lucide-react';
 import {
   fetchDashboardKpis, fetchCasesByCourt, fetchCaseStatusBreakdown,
   fetchCasesByDistrict, fetchCasesBySection, fetchDisposalOutcomes,
-  fetchHearingsByDate, fetchRecentListings,
+  fetchHearingsByDate, fetchRecentListings, fetchMostConnectedCases,
   type CategoryCount,
 } from '@/lib/dashboardQueries';
 import { taskPriorityClasses, taskStatusClasses } from '@/lib/caseManagement';
@@ -240,6 +240,7 @@ export default function DashboardPage() {
   const disposal    = useQuery({ queryKey: ['disposal-outcomes'], queryFn: fetchDisposalOutcomes });
   const hearings    = useQuery({ queryKey: ['hearings-by-date'], queryFn: fetchHearingsByDate });
   const listings    = useQuery({ queryKey: ['recent-listings'], queryFn: fetchRecentListings });
+  const mostConnected = useQuery({ queryKey: ['most-connected-cases'], queryFn: fetchMostConnectedCases });
 
   // ── Task tracker widgets ──────────────────────────────────────────────────
   const todayIso = isoLocal(new Date());
@@ -367,6 +368,34 @@ export default function DashboardPage() {
                 </tbody>
               </table>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Most Connected Cases — top 10 by connection count */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base"><Link2 className="h-4 w-4" /> Most Connected Cases</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {mostConnected.isLoading ? (
+            <div className="space-y-2 p-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-8" />)}</div>
+          ) : (mostConnected.data ?? []).length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">No connected cases yet.</p>
+          ) : (
+            <ul className="divide-y">
+              {(mostConnected.data ?? []).map((c, i) => (
+                <li key={`${c.label}-${i}`} className="flex items-center justify-between px-4 py-2 text-sm">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">{i + 1}</span>
+                    <span className="truncate font-mono text-xs">{c.label}</span>
+                  </span>
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                    <Link2 className="h-3 w-3" />{c.value}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>
