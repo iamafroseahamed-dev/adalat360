@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
@@ -38,6 +38,13 @@ export function AddConnectionDialog({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
+  // `excludeIds` is a fresh array on every parent render, so depend on its
+  // contents (a stable string) instead of its reference — otherwise the search
+  // effect re-runs on every re-render and the spinner never resolves.
+  const excludeKey = useMemo(() => excludeIds.join('|'), [excludeIds]);
+  const excludeRef = useRef(excludeIds);
+  excludeRef.current = excludeIds;
+
   useEffect(() => {
     if (!open) { setQuery(''); setResults([]); setRelationship('Connected'); setPage(1); }
   }, [open]);
@@ -48,7 +55,7 @@ export function AddConnectionDialog({
     setLoading(true);
     const t = setTimeout(async () => {
       try {
-        const rows = await searchCases(query, excludeIds);
+        const rows = await searchCases(query, excludeRef.current);
         if (!cancelled) { setResults(rows); setPage(1); }
       } catch (e) {
         if (!cancelled) toast.error(e instanceof Error ? e.message : 'Search failed.');
@@ -57,7 +64,7 @@ export function AddConnectionDialog({
       }
     }, 250);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [query, open, excludeIds]);
+  }, [query, open, excludeKey]);
 
   const totalPages = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
   const pageRows = useMemo(
