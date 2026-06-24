@@ -134,7 +134,7 @@ export default function OrganizationsPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div>
         <h1 className="flex items-center gap-2 text-xl font-semibold"><Building2 className="h-5 w-5" /> Organization Management</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">Manage organizations, plans, credit balances and eCourts API usage.</p>

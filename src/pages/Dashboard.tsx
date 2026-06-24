@@ -87,7 +87,7 @@ export default function DashboardPage() {
   const drill = selectedDistrict ? a?.districtDetails[selectedDistrict] : undefined;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Welcome to Adalat360</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">

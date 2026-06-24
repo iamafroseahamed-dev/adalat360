@@ -33,6 +33,8 @@
     @apply bg-background text-foreground;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
+  /* Prevent stray horizontal page scrolling on any screen size. */
+  html, body, #root { max-width: 100%; overflow-x: hidden; }
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
