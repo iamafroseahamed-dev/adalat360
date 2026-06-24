@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CaseNotesTab } from '@/components/CaseNotesTab';
 import { CaseTasksTab } from '@/components/CaseTasksTab';
 import { CaseConnectionsTab } from '@/components/CaseConnectionsTab';
+import { EcourtsHistoryTab } from '@/components/EcourtsHistoryTab';
 import { getEcourtsCaseType } from '@/config/ecourtsCaseTypes';
 import { supabase } from '@/lib/supabase';
 import { advocateStatusClasses } from '@/lib/caseManagement';
@@ -646,6 +647,7 @@ export function CaseDetailsModal({
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
             <TabsTrigger value="connected">Connected Cases</TabsTrigger>
             <TabsTrigger value="history">Case History</TabsTrigger>
+            <TabsTrigger value="ecourts">eCourts History</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -822,6 +824,10 @@ export function CaseDetailsModal({
                 No case history available. Use “Refresh Data” to load from eCourts.
               </p>
             )}
+          </TabsContent>
+
+          <TabsContent value="ecourts">
+            <EcourtsHistoryTab caseId={caseId} fallbackCnr={caseData?.cnr} />
           </TabsContent>
         </Tabs>
       </DialogContent>
