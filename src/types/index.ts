@@ -1,10 +1,34 @@
 export interface Organization {
   id: string;
   organization_name: string;
-  contact_person: string;
-  email: string;
-  mobile: string;
+  short_name?: string | null;
+  contact_person?: string | null;
+  contact_email?: string | null;
+  contact_mobile?: string | null;
+  plan_name?: string | null;
+  trial_credits?: number | null;
+  available_credits?: number | null;
   active: boolean;
+  created_at: string;
+  // Legacy fields populated by the auth profile join.
+  email?: string | null;
+  mobile?: string | null;
+}
+
+export interface EcourtsApiPricing {
+  endpoint_name: string;
+  credits_per_call: number | null;
+  amount_per_call: number | null;
+}
+
+export interface EcourtsApiUsage {
+  id: string;
+  organization_id: string | null;
+  case_id: string | null;
+  endpoint_name: string | null;
+  credits_used: number | null;
+  request_id: string | null;
+  cnr_number: string | null;
   created_at: string;
 }
 
