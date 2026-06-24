@@ -637,7 +637,7 @@ export default function TodaysListingsPage() {
                     className="gap-1.5"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
-                    View Order
+                    View Latest Order
                   </Button>
                   <Button
                     variant="outline"
