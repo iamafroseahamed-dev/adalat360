@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Plus, Search, Edit2, Eye, ExternalLink, FileText, Filter, Loader2, X, PowerOff, RefreshCw, Download, Scale } from 'lucide-react';
+import { Plus, Search, Edit2, Eye, ExternalLink, FileText, Filter, Loader2, X, PowerOff, RefreshCw, Download, Scale, UserPlus } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { CaseDetailsModal } from '@/components/CaseDetailsModal';
 import type { Case } from '@/types';
@@ -47,6 +47,8 @@ interface Filters {
   case_status: string; follow_up_status: string; active: string;
 }
 const EMPTY_FILTERS: Filters = { district: '', section: '', cla_party_status: '', sensitivity: '', case_status: '', follow_up_status: '', active: '' };
+
+interface Advocate { id: string; name: string; email: string | null; mobile_number: string | null; }
 
 function fmtDate(iso: string | null) {
   if (!iso) return '—';
@@ -274,6 +276,12 @@ export default function CasesPage() {
   const [caseDetailsNumber, setCaseDetailsNumber] = useState<string | null>(null);
   const [caseDetailsId, setCaseDetailsId]       = useState<string | null>(null);
 
+  // ── Advocate assignment ──────────────────────────────────────────────────────
+  const [advocates, setAdvocates]           = useState<Advocate[]>([]);
+  const [assignTarget, setAssignTarget]     = useState<Case | null>(null);
+  const [assignAdvocateId, setAssignAdvocateId] = useState<string>('');
+  const [assigning, setAssigning]           = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -289,6 +297,35 @@ export default function CasesPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Advocate list for the assignment dropdown (CLA team = notification recipients)
+  useEffect(() => {
+    supabase
+      .from('system_notification_recipients')
+      .select('id, name, email, mobile_number')
+      .eq('active', true)
+      .order('name', { ascending: true })
+      .then(({ data }) => setAdvocates((data ?? []) as Advocate[]));
+  }, []);
+
+  async function saveAssignment() {
+    if (!assignTarget) return;
+    const adv = advocates.find(a => a.id === assignAdvocateId);
+    if (!adv) { toast.error('Select an advocate.'); return; }
+    setAssigning(true);
+    const { error: err } = await supabase.from('cases').update({
+      assigned_advocate_name: adv.name,
+      assigned_advocate_email: adv.email,
+      assigned_advocate_mobile: adv.mobile_number,
+      assigned_on: new Date().toISOString(),
+    }).eq('id', assignTarget.id);
+    setAssigning(false);
+    if (err) { toast.error(err.message); return; }
+    toast.success('Assigned successfully');
+    setAssignTarget(null);
+    setAssignAdvocateId('');
+    await load();
+  }
 
   const setFilter = (key: keyof Filters) => (v: string) =>
     setFilters(p => ({ ...p, [key]: v === '__all__' ? '' : v }));
@@ -577,6 +614,7 @@ export default function CasesPage() {
                   <TableHead>Respondent</TableHead>
                   <TableHead className="w-24">Case Status</TableHead>
                   <TableHead className="w-28">Next Hearing</TableHead>
+                  <TableHead className="w-44">Assigned Advocate</TableHead>
                   <TableHead className="w-28 text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -592,6 +630,17 @@ export default function CasesPage() {
                     <TableCell className="text-xs max-w-[160px] truncate" title={c.respondent ?? ''}>{c.respondent || '—'}</TableCell>
                     <TableCell><CaseStatusBadge status={c.case_status} /></TableCell>
                     <TableCell className="text-xs">{fmtDate(c.next_hearing_date)}</TableCell>
+                    <TableCell className="text-xs">
+                      {c.assigned_advocate_name ? (
+                        <div className="leading-tight">
+                          <p className="font-medium">{c.assigned_advocate_name}</p>
+                          {c.assigned_advocate_email && <p className="text-muted-foreground">{c.assigned_advocate_email}</p>}
+                          {c.assigned_advocate_mobile && <p className="text-muted-foreground">{c.assigned_advocate_mobile}</p>}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">Unassigned</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button size="icon" variant="ghost" className="h-8 w-8" title="View"
@@ -615,6 +664,10 @@ export default function CasesPage() {
                           disabled={!c.case_number}
                           onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsId(c.id); setCaseDetailsOpen(true); }}>
                           <Scale className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8" title="Assign Advocate"
+                          onClick={() => { setAssignTarget(c); setAssignAdvocateId(''); }}>
+                          <UserPlus className="w-3.5 h-3.5" />
                         </Button>
                       </div>
                     </TableCell>
@@ -833,6 +886,38 @@ export default function CasesPage() {
               </div>
             );
           })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Assign Advocate Dialog ── */}
+      <Dialog open={!!assignTarget} onOpenChange={(o) => { if (!o) { setAssignTarget(null); setAssignAdvocateId(''); } }}>
+        <DialogContent className="max-w-[calc(100vw-1rem)] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign Advocate</DialogTitle>
+            <DialogDescription>{assignTarget?.case_number}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">Select Advocate</Label>
+            <Select value={assignAdvocateId} onValueChange={setAssignAdvocateId}>
+              <SelectTrigger><SelectValue placeholder="Select advocate" /></SelectTrigger>
+              <SelectContent>
+                {advocates.length === 0 ? (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">No advocates found. Add recipients in Settings.</div>
+                ) : advocates.map(a => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.name}{a.mobile_number ? ` · ${a.mobile_number}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setAssignTarget(null); setAssignAdvocateId(''); }} disabled={assigning}>Cancel</Button>
+            <Button onClick={saveAssignment} disabled={assigning || !assignAdvocateId} className="gap-1">
+              {assigning && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Save
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

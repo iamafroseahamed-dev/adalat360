@@ -7,8 +7,10 @@ import {
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Scale } from 'lucide-react';
+import { Scale, ListPlus } from 'lucide-react';
 import { CaseDetailsModal } from '@/components/CaseDetailsModal';
+import { TaskFormDialog } from '@/components/TaskFormDialog';
+import { HEARING_TASK_TEMPLATES } from '@/lib/caseManagement';
 import type { Case } from '@/types';
 
 function isoToday(): string {
@@ -59,6 +61,11 @@ export default function UpcomingHearingsPage() {
   const [detailsNumber, setDetailsNumber] = useState<string | null>(null);
   const [detailsId, setDetailsId] = useState<string | null>(null);
 
+  // Quick task creation (hearing within 7 days)
+  const [taskOpen, setTaskOpen] = useState(false);
+  const [taskCaseId, setTaskCaseId] = useState<string | null>(null);
+  const [taskDueDate, setTaskDueDate] = useState<string | null>(null);
+
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['upcoming-hearings', today],
     queryFn: async (): Promise<Case[]> => {
@@ -78,6 +85,12 @@ export default function UpcomingHearingsPage() {
     setDetailsNumber(c.case_number);
     setDetailsId(c.id);
     setDetailsOpen(true);
+  }
+
+  function openTask(c: Case) {
+    setTaskCaseId(c.id);
+    setTaskDueDate(c.next_hearing_date ? String(c.next_hearing_date).slice(0, 10) : null);
+    setTaskOpen(true);
   }
 
   return (
@@ -135,16 +148,30 @@ export default function UpcomingHearingsPage() {
                       <TableCell><HearingDateBadge iso={c.next_hearing_date} /></TableCell>
                       <TableCell className="whitespace-nowrap">{c.case_status ?? '\u2014'}</TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 gap-1 text-xs"
-                          disabled={!c.case_number}
-                          onClick={() => openDetails(c)}
-                        >
-                          <Scale className="h-3 w-3" />
-                          View Details
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          {(() => { const d = daysUntil(c.next_hearing_date); return d !== null && d <= 7; })() && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 gap-1 text-xs"
+                              title="Create task for this hearing"
+                              onClick={() => openTask(c)}
+                            >
+                              <ListPlus className="h-3 w-3" />
+                              Create Task
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1 text-xs"
+                            disabled={!c.case_number}
+                            onClick={() => openDetails(c)}
+                          >
+                            <Scale className="h-3 w-3" />
+                            View Details
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -162,6 +189,17 @@ export default function UpcomingHearingsPage() {
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
       />
+
+      {/* ── Quick task creation for upcoming hearing ── */}
+      {taskCaseId && (
+        <TaskFormDialog
+          open={taskOpen}
+          onOpenChange={setTaskOpen}
+          caseId={taskCaseId}
+          initialDueDate={taskDueDate}
+          templates={HEARING_TASK_TEMPLATES}
+        />
+      )}
     </div>
   );
 }

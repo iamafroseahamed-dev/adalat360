@@ -8,6 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { DownloadCloud, Loader2, RefreshCw } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CaseNotesTab } from '@/components/CaseNotesTab';
+import { CaseTasksTab } from '@/components/CaseTasksTab';
 import { getEcourtsCaseType } from '@/config/ecourtsCaseTypes';
 import { supabase } from '@/lib/supabase';
 
@@ -283,6 +286,49 @@ function StatCard({ label, value }: { label: string; value: number }) {
   );
 }
 
+// Case History timeline (built from the eCourts case data) ──────────────────────
+function CaseHistorySection({ caseData }: { caseData: EcourtsCaseData }) {
+  const events = [
+    { label: 'Case Filed', date: caseData.filingDate },
+    { label: 'Case Registered', date: caseData.registrationDate },
+    { label: 'First Hearing', date: caseData.firstHearingDate },
+    { label: 'Last Hearing', date: caseData.lastHearingDate },
+    { label: 'Next Hearing', date: caseData.nextHearingDate },
+  ].filter(e => !!e.date);
+
+  return (
+    <div className="space-y-6">
+      <section>
+        <SectionTitle>Timeline</SectionTitle>
+        {events.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No dated events available.</p>
+        ) : (
+          <ol className="relative ml-2 space-y-4 border-l pl-5">
+            {events.map((e, i) => (
+              <li key={`${e.label}-${i}`} className="relative">
+                <span className="absolute -left-[1.45rem] top-1 h-2.5 w-2.5 rounded-full bg-primary" />
+                <p className="text-sm font-medium">{e.label}</p>
+                <p className="text-xs text-muted-foreground">{fmtDate(e.date)}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      <section>
+        <SectionTitle>Activity Summary</SectionTitle>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <StatCard label="Hearings" value={num(caseData.hearingCount)} />
+          <StatCard label="Orders" value={num(caseData.orderCount)} />
+          <StatCard label="Interim Orders" value={num(caseData.interimOrderCount)} />
+          <StatCard label="Judgments" value={num(caseData.judgmentCount)} />
+          <StatCard label="IAs" value={num(caseData.iaCount)} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
 // ── Modal ────────────────────────────────────────────────────────────────────────
 
 interface CaseDetailsModalProps {
@@ -524,6 +570,15 @@ export function CaseDetailsModal({
           </div>
         )}
 
+        <Tabs defaultValue="overview" className="mt-1">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="notes">Notes</TabsTrigger>
+            <TabsTrigger value="tasks">Tasks</TabsTrigger>
+            <TabsTrigger value="history">Case History</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="space-y-6">
         {(loadingApi || loadingCached) && (
           <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -620,6 +675,30 @@ export function CaseDetailsModal({
             </section>
           </div>
         )}
+          </TabsContent>
+
+          <TabsContent value="notes">
+            <CaseNotesTab caseId={caseId} />
+          </TabsContent>
+
+          <TabsContent value="tasks">
+            <CaseTasksTab caseId={caseId} />
+          </TabsContent>
+
+          <TabsContent value="history">
+            {(loadingApi || loadingCached) ? (
+              <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading case history...
+              </div>
+            ) : caseData ? (
+              <CaseHistorySection caseData={caseData} />
+            ) : (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                No case history available. Use “Refresh Data” to load from eCourts.
+              </p>
+            )}
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );

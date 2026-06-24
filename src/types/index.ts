@@ -58,6 +58,11 @@ export interface Case {
   import_batch: string | null;
   case_section: string | null;
   followup_status: string | null;
+  // Case assignment (requires case_management.sql)
+  assigned_advocate_name?: string | null;
+  assigned_advocate_email?: string | null;
+  assigned_advocate_mobile?: string | null;
+  assigned_on?: string | null;
   // eCourts discovery (set after first captcha lookup — requires migration 005)
   ecourts_case_no?: string | null;
   cnr_discovered_at?: string | null;
@@ -327,4 +332,32 @@ export interface CauseListFilters {
   bench?: string;
   judge?: string;
   status?: string;
+}
+
+// ── Case Management — notes & tasks (requires case_management.sql) ─────────────
+export interface CaseNote {
+  id: string;
+  case_id: string;
+  note_text: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export type TaskStatus = 'Open' | 'In Progress' | 'Waiting' | 'Completed' | 'Cancelled';
+export type TaskPriority = 'Low' | 'Medium' | 'High' | 'Critical';
+
+export interface CaseTask {
+  id: string;
+  case_id: string;
+  task_title: string;
+  task_description: string | null;
+  assigned_to_name: string | null;
+  assigned_to_email: string | null;
+  assigned_to_mobile: string | null;
+  due_date: string | null;
+  task_status: TaskStatus;
+  priority: TaskPriority;
+  created_by: string | null;
+  created_at: string;
+  completed_at: string | null;
 }

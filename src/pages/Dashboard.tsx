@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
   Briefcase, Clock, CheckCircle2, CalendarDays, CalendarClock, Gavel,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, ListTodo, AlertTriangle,
 } from 'lucide-react';
 import {
   fetchDashboardKpis, fetchCasesByCourt, fetchCaseStatusBreakdown,
@@ -21,6 +21,7 @@ import {
   fetchHearingsByDate, fetchRecentListings,
   type CategoryCount,
 } from '@/lib/dashboardQueries';
+import { taskPriorityClasses, taskStatusClasses } from '@/lib/caseManagement';
 import type { Case } from '@/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -240,6 +241,42 @@ export default function DashboardPage() {
   const hearings    = useQuery({ queryKey: ['hearings-by-date'], queryFn: fetchHearingsByDate });
   const listings    = useQuery({ queryKey: ['recent-listings'], queryFn: fetchRecentListings });
 
+  // ── Task tracker widgets ──────────────────────────────────────────────────
+  const todayIso = isoLocal(new Date());
+  const tasksOpen = useQuery({
+    queryKey: ['tasks-open-count'],
+    queryFn: async () => {
+      const { count } = await supabase.from('case_tasks').select('*', { count: 'exact', head: true }).neq('task_status', 'Completed');
+      return count ?? 0;
+    },
+  });
+  const tasksDueToday = useQuery({
+    queryKey: ['tasks-due-today', todayIso],
+    queryFn: async () => {
+      const { count } = await supabase.from('case_tasks').select('*', { count: 'exact', head: true }).eq('due_date', todayIso);
+      return count ?? 0;
+    },
+  });
+  const tasksOverdue = useQuery({
+    queryKey: ['tasks-overdue', todayIso],
+    queryFn: async () => {
+      const { count } = await supabase.from('case_tasks').select('*', { count: 'exact', head: true }).lt('due_date', todayIso).neq('task_status', 'Completed');
+      return count ?? 0;
+    },
+  });
+  const openTaskList = useQuery({
+    queryKey: ['tasks-open-list'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('case_tasks')
+        .select('id, task_title, assigned_to_name, due_date, priority, task_status')
+        .neq('task_status', 'Completed')
+        .order('due_date', { ascending: true, nullsFirst: false })
+        .limit(10);
+      return (data ?? []) as Array<{ id: string; task_title: string; assigned_to_name: string | null; due_date: string | null; priority: string | null; task_status: string | null }>;
+    },
+  });
+
   const k = kpis.data;
 
   const hearingCounts = useMemo(() => {
@@ -290,6 +327,49 @@ export default function DashboardPage() {
         <KpiCard label="Hearings (7 Days)"    value={k?.hearings_within_7_days ?? 0} icon={CalendarClock} accent="text-orange-600" loading={kpis.isLoading} onClick={() => navigate('/upcoming-hearings')} />
         <KpiCard label="Hearings Today"       value={k?.hearings_today ?? 0}         icon={Gavel}         accent="text-red-600" loading={kpis.isLoading} onClick={() => navigate('/upcoming-hearings')} />
       </div>
+
+      {/* Task Tracker — My Open / Due Today / Overdue */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <KpiCard label="My Open Tasks"   value={tasksOpen.data ?? 0}     icon={ListTodo}      accent="text-slate-700" loading={tasksOpen.isLoading} />
+        <KpiCard label="Tasks Due Today" value={tasksDueToday.data ?? 0} icon={CalendarClock} accent="text-blue-600"   loading={tasksDueToday.isLoading} />
+        <KpiCard label="Overdue Tasks"   value={tasksOverdue.data ?? 0}  icon={AlertTriangle} accent="text-red-600"    loading={tasksOverdue.isLoading} />
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-base">Open Tasks</CardTitle></CardHeader>
+        <CardContent className="p-0">
+          {openTaskList.isLoading ? (
+            <div className="space-y-2 p-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-9" />)}</div>
+          ) : (openTaskList.data ?? []).length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">No open tasks.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">Task</th>
+                    <th className="px-3 py-2 font-medium">Assignee</th>
+                    <th className="px-3 py-2 font-medium">Due Date</th>
+                    <th className="px-3 py-2 font-medium">Priority</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(openTaskList.data ?? []).map(t => (
+                    <tr key={t.id} className="border-b last:border-0">
+                      <td className="px-3 py-2">{t.task_title}</td>
+                      <td className="px-3 py-2">{t.assigned_to_name ?? '\u2014'}</td>
+                      <td className="whitespace-nowrap px-3 py-2">{fmtDate(t.due_date)}</td>
+                      <td className="px-3 py-2"><span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${taskPriorityClasses(t.priority)}`}>{t.priority}</span></td>
+                      <td className="px-3 py-2"><span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${taskStatusClasses(t.task_status)}`}>{t.task_status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Row 2 — Cases by court + status donut */}
       <div className="grid gap-4 lg:grid-cols-3">
