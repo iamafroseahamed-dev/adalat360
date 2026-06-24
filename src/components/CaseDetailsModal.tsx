@@ -11,6 +11,7 @@ import { DownloadCloud, Loader2, RefreshCw } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CaseNotesTab } from '@/components/CaseNotesTab';
 import { CaseTasksTab } from '@/components/CaseTasksTab';
+import { CaseConnectionsTab } from '@/components/CaseConnectionsTab';
 import { getEcourtsCaseType } from '@/config/ecourtsCaseTypes';
 import { supabase } from '@/lib/supabase';
 
@@ -340,10 +341,12 @@ interface CaseDetailsModalProps {
   allowSync?: boolean;
   /** Called after a successful sync so the host can refresh its table row. */
   onSynced?: () => void;
+  /** Which tab to open initially (e.g. 'connected' from the Cases list count). */
+  initialTab?: string;
 }
 
 export function CaseDetailsModal({
-  caseNumber, caseId, open, onOpenChange, allowSync = false, onSynced,
+  caseNumber, caseId, open, onOpenChange, allowSync = false, onSynced, initialTab = 'overview',
 }: CaseDetailsModalProps) {
   const queryClient = useQueryClient();
   const [loadingApi, setLoadingApi] = useState(false);
@@ -352,6 +355,28 @@ export function CaseDetailsModal({
   const [error, setError] = useState<string | null>(null);
   const [caseData, setCaseData] = useState<EcourtsCaseData | null>(null);
   const [source, setSource] = useState<CacheSource | null>(null);
+  const [tab, setTab] = useState(initialTab);
+  const [summary, setSummary] = useState<{ connections: number; openTasks: number; notes: number } | null>(null);
+  const [viewCase, setViewCase] = useState<{ id: string; number: string | null } | null>(null);
+
+  const loadSummary = useCallback(async (id: string) => {
+    try {
+      const [conn, tasks, notes] = await Promise.all([
+        supabase.from('case_connections').select('id', { count: 'exact', head: true })
+          .or(`parent_case_id.eq.${id},connected_case_id.eq.${id}`),
+        supabase.from('case_tasks').select('id', { count: 'exact', head: true })
+          .eq('case_id', id).neq('task_status', 'Completed'),
+        supabase.from('case_notes').select('id', { count: 'exact', head: true }).eq('case_id', id),
+      ]);
+      setSummary({
+        connections: conn.count ?? 0,
+        openTasks: tasks.count ?? 0,
+        notes: notes.count ?? 0,
+      });
+    } catch {
+      setSummary(null);
+    }
+  }, []);
 
   const load = useCallback(async (rawCaseNumber: string, id: string | null | undefined, forceRefresh: boolean) => {
     const key = String(rawCaseNumber ?? '').trim();
@@ -509,6 +534,13 @@ export function CaseDetailsModal({
     }
   }, [open, caseNumber, caseId, load]);
 
+  useEffect(() => {
+    if (open) {
+      setTab(initialTab);
+      if (caseId) loadSummary(caseId); else setSummary(null);
+    }
+  }, [open, caseId, initialTab, loadSummary]);
+
   const refreshing = (loadingApi || loadingCached) && source === null;
 
   return (
@@ -570,11 +602,26 @@ export function CaseDetailsModal({
           </div>
         )}
 
-        <Tabs defaultValue="overview" className="mt-1">
+        {caseId && summary && (
+          <div className="flex flex-wrap gap-2">
+            <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">
+              Connected Cases: <strong>{summary.connections}</strong>
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+              Open Tasks: <strong>{summary.openTasks}</strong>
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+              Notes: <strong>{summary.notes}</strong>
+            </span>
+          </div>
+        )}
+
+        <Tabs value={tab} onValueChange={setTab} className="mt-1">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="notes">Notes</TabsTrigger>
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
+            <TabsTrigger value="connected">Connected Cases</TabsTrigger>
             <TabsTrigger value="history">Case History</TabsTrigger>
           </TabsList>
 
@@ -685,6 +732,14 @@ export function CaseDetailsModal({
             <CaseTasksTab caseId={caseId} caseNumber={caseNumber} />
           </TabsContent>
 
+          <TabsContent value="connected">
+            <CaseConnectionsTab
+              caseId={caseId}
+              onOpenCase={(id, number) => setViewCase({ id, number })}
+              onCountChange={n => setSummary(s => (s ? { ...s, connections: n } : s))}
+            />
+          </TabsContent>
+
           <TabsContent value="history">
             {(loadingApi || loadingCached) ? (
               <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
@@ -700,6 +755,16 @@ export function CaseDetailsModal({
           </TabsContent>
         </Tabs>
       </DialogContent>
+
+      {viewCase && (
+        <CaseDetailsModal
+          caseNumber={viewCase.number}
+          caseId={viewCase.id}
+          open={!!viewCase}
+          onOpenChange={o => { if (!o) setViewCase(null); }}
+          initialTab="overview"
+        />
+      )}
     </Dialog>
   );
 }
