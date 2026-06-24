@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Sparkles, RefreshCw, ShieldAlert, Clock3 } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Loader2, Sparkles, RefreshCw, ShieldAlert, FileText, TrendingUp, Building2, ClipboardList, Target, Lightbulb, ListChecks, AlertTriangle, Gavel } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { getEcourtsCaseType } from '@/config/ecourtsCaseTypes';
 import { hasCredits, NO_CREDITS_MESSAGE, recordApiUsage } from '@/lib/organizations';
-import type { AiCaseAnalysisJson, CaseAiAnalysis } from '@/types';
+import type { AiCaseAnalysisJson, CaseAiAnalysis, ParsedOrderRecord } from '@/types';
 import type { EcourtsCaseData } from '@/components/CaseDetailsModal';
 
 interface SearchResponse {
@@ -16,6 +17,14 @@ interface SearchResponse {
   totalHits?: number;
   caseData?: EcourtsCaseData | null;
   requestId?: string | null;
+  message?: string;
+}
+
+interface OrdersResponse {
+  success: boolean;
+  orders?: ParsedOrderRecord[];
+  count?: number;
+  note?: string;
   message?: string;
 }
 
@@ -207,6 +216,35 @@ async function buildAiContext(caseId: string, caseNumber: string | null, caseDat
   };
 }
 
+/**
+ * Orders are downloaded and parsed only once, then cached permanently in
+ * case_ai_analysis.parsed_orders. If a cached copy exists we reuse it and never
+ * hit the MHC server again. Returns null only when no attempt could be made.
+ */
+async function ensureParsedOrders(
+  caseNumber: string | null,
+  cached: ParsedOrderRecord[] | null | undefined,
+): Promise<ParsedOrderRecord[] | null> {
+  if (Array.isArray(cached) && cached.length > 0) return cached;
+  const number = String(caseNumber || '').trim();
+  if (!number) return cached ?? null;
+
+  try {
+    const resp = await fetch('/api/case-analysis/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ caseNumber: number, limit: 8 }),
+    });
+    const json = await resp.json() as OrdersResponse;
+    if (resp.ok && json.success && Array.isArray(json.orders)) {
+      return json.orders;
+    }
+  } catch {
+    // Orders are optional context — never block analysis on order fetch failure.
+  }
+  return cached ?? null;
+}
+
 export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string | null | undefined; caseNumber: string | null; caseData?: EcourtsCaseData | null }) {
   const { user } = useAuth();
   const [record, setRecord] = useState<CaseAiAnalysis | null>(null);
@@ -256,6 +294,7 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
   useEffect(() => { void loadCached(); }, [loadCached]);
 
   const analysis = useMemo(() => record?.ai_json ?? null, [record]);
+  const parsedOrders = useMemo<ParsedOrderRecord[]>(() => Array.isArray(record?.parsed_orders) ? record!.parsed_orders! : [], [record]);
 
   const generate = useCallback(async (refresh: boolean) => {
     if (!caseId) return;
@@ -263,10 +302,16 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
     setError(null);
     try {
       const payload = await buildAiContext(caseId, caseNumber, caseData);
+
+      // Download + parse orders once, then reuse the permanent cache thereafter.
+      const parsedOrders = await ensureParsedOrders(caseNumber ?? payload.context.caseNumber, record?.parsed_orders ?? null);
+      const ordersChanged = parsedOrders !== (record?.parsed_orders ?? null);
+      const context = { ...payload.context, parsedOrders: parsedOrders ?? [] };
+
       const resp = await fetch('/api/case-analysis/sarvam', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ caseId, caseNumber: caseNumber ?? null, context: payload.context }),
+        body: JSON.stringify({ caseId, caseNumber: caseNumber ?? null, context }),
       });
       let json: AiAnalysisResponse | null = null;
       try {
@@ -277,16 +322,23 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
       }
       if (!resp.ok || !json?.success) throw new Error(buildAiErrorMessage(json));
 
-      const upsertPayload = {
+      const upsertPayload: Record<string, unknown> = {
         case_id: caseId,
         cnr_number: payload.cnrNumber || null,
         case_hash: currentHash ?? await buildCaseHash(caseId),
         ai_summary: json.summary ?? null,
         ai_json: json.analysis as AiCaseAnalysisJson,
+        model: json.model ?? null,
         generated_at: new Date().toISOString(),
         generated_by: user?.profile?.full_name || user?.email || 'Unknown',
         last_accessed_at: new Date().toISOString(),
       };
+      if (parsedOrders) {
+        upsertPayload.parsed_orders = parsedOrders;
+        if (ordersChanged || !record?.parsed_orders_at) {
+          upsertPayload.parsed_orders_at = new Date().toISOString();
+        }
+      }
 
       const { data: existingRow, error: existingErr } = await supabase
         .from('case_ai_analysis')
@@ -320,7 +372,7 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
     } finally {
       setGenerating(false);
     }
-  }, [caseData, caseId, caseNumber, user]);
+  }, [caseData, caseId, caseNumber, currentHash, record, user]);
 
   if (!caseId) {
     return <p className="py-10 text-center text-sm text-muted-foreground">AI insights are available once a case is selected.</p>;
@@ -381,27 +433,25 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
 
       {analysis && (
         <div className="space-y-4">
+          {/* 1. Executive Legal Summary + risk header */}
           <div className="grid gap-4 lg:grid-cols-3">
             <Card className="lg:col-span-2">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Executive Summary</CardTitle>
+              <CardHeader className="flex flex-row items-center gap-2 pb-2">
+                <FileText className="h-4 w-4 text-indigo-600" />
+                <CardTitle className="text-base">Executive Legal Summary</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-sm">{analysis.executive_summary.case_about}</p>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Key Dispute</p>
-                  <p className="mt-1 text-sm">{analysis.executive_summary.key_dispute}</p>
-                </div>
-                {record?.ai_summary && <p className="rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{record.ai_summary}</p>}
+              <CardContent>
+                <p className="text-sm leading-relaxed">{analysis.executive_legal_summary || '\u2014'}</p>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Risk Assessment</CardTitle>
+              <CardHeader className="flex flex-row items-center gap-2 pb-2">
+                <ShieldAlert className="h-4 w-4 text-rose-600" />
+                <CardTitle className="text-base">Litigation Risk</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <Badge variant={riskVariant(analysis.risk_assessment.level)}>{analysis.risk_assessment.level} Risk</Badge>
-                <p className="text-sm">{analysis.risk_assessment.reason}</p>
+                <Badge variant={riskVariant(analysis.litigation_risk_assessment.level)}>{analysis.litigation_risk_assessment.level} Risk</Badge>
+                <p className="text-sm">{analysis.litigation_risk_assessment.rationale}</p>
                 <div className="flex flex-wrap gap-2 text-xs">
                   {analysis.attention_required && <Badge variant="destructive">Immediate Attention</Badge>}
                   {analysis.no_activity && <Badge variant="warning">No Activity</Badge>}
@@ -412,111 +462,145 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
             </Card>
           </div>
 
+          {/* 2 & 3. Risk factors + hearing trend */}
           <div className="grid gap-4 lg:grid-cols-2">
-            <InfoListCard title="Parties" sections={[
-              { label: 'Petitioners', items: toList(analysis.parties.petitioners) },
-              { label: 'Respondents', items: toList(analysis.parties.respondents) },
-              { label: 'Advocates', items: toList(analysis.parties.advocates) },
-            ]} />
-            <InfoTextCard title="Case Status" rows={[
-              ['Status', analysis.case_status.status],
-              ['Current Stage', analysis.case_status.current_stage],
-              ['Total Hearings', String(analysis.hearing_analysis.total_hearings)],
-              ['Hearing Trend', analysis.hearing_analysis.hearing_trend],
-              ['Delays', analysis.hearing_analysis.delays],
-            ]} />
-            <InfoTextCard title="Timeline Summary" rows={[
-              ['Filing Date', analysis.timeline_summary.filing_date],
-              ['First Hearing', analysis.timeline_summary.first_hearing],
-              ['Last Hearing', analysis.timeline_summary.last_hearing],
-              ['Next Hearing', analysis.timeline_summary.next_hearing],
-            ]} />
-            <InfoTextCard title="Department Impact" rows={[
-              ['Organization Impact', analysis.department_impact.organization_impact],
-              ['Department Impact', analysis.department_impact.department_impact],
-            ]} />
+            <BulletCard icon={<AlertTriangle className="h-4 w-4 text-rose-600" />} title="Key Risk Factors" items={toList(analysis.litigation_risk_assessment.key_risk_factors)} />
+            <Card>
+              <CardHeader className="flex flex-row items-center gap-2 pb-2">
+                <TrendingUp className="h-4 w-4 text-amber-600" />
+                <CardTitle className="text-base">Hearing Trend Analysis</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <TextRow label="Pattern" value={analysis.hearing_trend_analysis.pattern} />
+                <TextRow label="Adjournment Concerns" value={analysis.hearing_trend_analysis.adjournment_concerns} />
+                <BulletList items={toList(analysis.hearing_trend_analysis.observations)} />
+              </CardContent>
+            </Card>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <InfoListCard title="Key Legal Observations" sections={[
-              { label: 'Important Legal Issues', items: toList(analysis.key_legal_observations.important_legal_issues) },
-              { label: 'Risks', items: toList(analysis.key_legal_observations.risks) },
-              { label: 'Potential Impact', items: toList(analysis.key_legal_observations.potential_impact) },
-            ]} />
-            <InfoListCard title="Advocate Action Items" sections={[
-              { label: 'Immediate Actions', items: toList(analysis.advocate_action_items.immediate_actions) },
-              { label: 'Documents Required', items: toList(analysis.advocate_action_items.documents_required) },
-              { label: 'Follow-up Recommendations', items: toList(analysis.advocate_action_items.follow_up_recommendations) },
-            ]} />
-          </div>
-
+          {/* 4. Department Impact */}
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Recommended Next Steps</CardTitle>
+            <CardHeader className="flex flex-row items-center gap-2 pb-2">
+              <Building2 className="h-4 w-4 text-blue-600" />
+              <CardTitle className="text-base">Department Impact Analysis</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-3">
+              <TextRow label="Summary" value={analysis.department_impact_analysis.summary} />
+              <TextRow label="Financial Exposure" value={analysis.department_impact_analysis.financial_exposure} />
+              <TextRow label="Policy / Operational Impact" value={analysis.department_impact_analysis.policy_or_operational_impact} />
+            </CardContent>
+          </Card>
+
+          {/* 5 & 6. Advocate recommendations + missing info */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <BulletCard icon={<Lightbulb className="h-4 w-4 text-emerald-600" />} title="Advocate Recommendations" items={toList(analysis.advocate_recommendations)} />
+            <BulletCard icon={<ClipboardList className="h-4 w-4 text-orange-600" />} title="Missing Information / Documents" items={toList(analysis.missing_information)} />
+          </div>
+
+          {/* 7 & 8. Hearing prep + strategy */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <BulletCard icon={<ListChecks className="h-4 w-4 text-indigo-600" />} title="Next Hearing Preparation Checklist" items={toList(analysis.next_hearing_preparation_checklist)} />
+            <BulletCard icon={<Target className="h-4 w-4 text-violet-600" />} title="Strategic Recommendations" items={toList(analysis.strategic_recommendations)} />
+          </div>
+
+          {/* 9. Similar case risk indicators */}
+          <BulletCard icon={<AlertTriangle className="h-4 w-4 text-amber-600" />} title="Similar Case Risk Indicators" items={toList(analysis.similar_case_risk_indicators)} />
+
+          {/* 10. AI Generated Action Plan */}
+          <Card>
+            <CardHeader className="flex flex-row items-center gap-2 pb-2">
+              <Sparkles className="h-4 w-4 text-indigo-600" />
+              <CardTitle className="text-base">AI Generated Action Plan</CardTitle>
             </CardHeader>
             <CardContent>
-              {analysis.recommended_next_steps.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No specific next steps returned.</p>
+              {analysis.ai_action_plan.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No action plan returned.</p>
               ) : (
-                <ul className="space-y-2">
-                  {analysis.recommended_next_steps.map((item, idx) => (
-                    <li key={`${item}-${idx}`} className="flex items-start gap-2 text-sm">
-                      <ShieldAlert className="mt-0.5 h-4 w-4 text-indigo-600" />
-                      <span>{item}</span>
+                <ol className="space-y-2">
+                  {analysis.ai_action_plan.map((item, idx) => (
+                    <li key={`${item.step}-${idx}`} className="flex items-start gap-3 rounded-md border bg-muted/10 px-3 py-2 text-sm">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white">{idx + 1}</span>
+                      <div className="flex-1">
+                        <p>{item.step}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">Owner: {item.owner}</p>
+                      </div>
+                      <Badge variant={priorityVariant(item.priority)}>{item.priority}</Badge>
                     </li>
                   ))}
-                </ul>
+                </ol>
               )}
             </CardContent>
           </Card>
+
+          {/* Cached court orders (downloaded & parsed once) */}
+          {parsedOrders.length > 0 && (
+            <Card>
+              <CardHeader className="flex flex-row items-center gap-2 pb-2">
+                <Gavel className="h-4 w-4 text-slate-600" />
+                <CardTitle className="text-base">Court Orders (Cached)</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {parsedOrders.map((order, idx) => (
+                  <div key={`${order.pdf_url ?? idx}`} className="rounded-md border px-3 py-2 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium">{order.order_type || 'Order'}{order.order_date ? ` \u2014 ${order.order_date}` : ''}</span>
+                      {order.pdf_url && (
+                        <a href={order.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 underline">View PDF</a>
+                      )}
+                    </div>
+                    {order.judge && <p className="text-xs text-muted-foreground">Bench: {order.judge}</p>}
+                    {order.summary && <p className="mt-1 text-xs text-muted-foreground line-clamp-3">{order.summary}</p>}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function InfoTextCard({ title, rows }: { title: string; rows: Array<[string, string]> }) {
+function priorityVariant(level: string): 'destructive' | 'warning' | 'secondary' {
+  switch (level.toLowerCase()) {
+    case 'high': return 'destructive';
+    case 'medium': return 'warning';
+    default: return 'secondary';
+  }
+}
+
+function TextRow({ label, value }: { label: string; value: string }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {rows.map(([label, value]) => (
-          <div key={label}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-            <p className="mt-1 text-sm">{value || '\u2014'}</p>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm">{value || '\u2014'}</p>
+    </div>
   );
 }
 
-function InfoListCard({ title, sections }: { title: string; sections: Array<{ label: string; items: string[] }> }) {
+function BulletList({ items }: { items: string[] }) {
+  if (items.length === 0) return <p className="text-sm text-muted-foreground">\u2014</p>;
+  return (
+    <ul className="space-y-1">
+      {items.map((item, idx) => (
+        <li key={`${item}-${idx}`} className="flex items-start gap-2 text-sm">
+          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/60" />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function BulletCard({ icon, title, items }: { icon: ReactNode; title: string; items: string[] }) {
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader className="flex flex-row items-center gap-2 pb-2">
+        {icon}
         <CardTitle className="text-base">{title}</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {sections.map(section => (
-          <div key={section.label}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{section.label}</p>
-            {section.items.length === 0 ? (
-              <p className="mt-1 text-sm text-muted-foreground">\u2014</p>
-            ) : (
-              <ul className="mt-1 space-y-1">
-                {section.items.map((item, idx) => (
-                  <li key={`${section.label}-${idx}`} className="flex items-start gap-2 text-sm">
-                    <Clock3 className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ))}
+      <CardContent>
+        <BulletList items={items} />
       </CardContent>
     </Card>
   );

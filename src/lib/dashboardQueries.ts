@@ -710,7 +710,8 @@ export async function fetchExecutiveAnalytics(orgId?: string | null): Promise<Ex
   const aiCases: AiCaseSnapshot[] = aiRows.map(row => {
     const c = caseById.get(row.case_id);
     const ai = (row.ai_json ?? {}) as Record<string, unknown>;
-    const risk = ((ai.risk_assessment as Record<string, unknown> | undefined)?.level as string | undefined) ?? 'Unknown';
+    const riskBlock = (ai.litigation_risk_assessment ?? ai.risk_assessment) as Record<string, unknown> | undefined;
+    const risk = (riskBlock?.level as string | undefined) ?? 'Unknown';
     const updatedAt = c?.updated_at ? new Date(String(c.updated_at)).getTime() : 0;
     const createdAt = c?.created_at ? new Date(String(c.created_at)).getTime() : 0;
     const ageDays = createdAt > 0 ? Math.floor((now.getTime() - createdAt) / 86400000) : 0;
