@@ -61,6 +61,10 @@ export interface Case {
   // eCourts discovery (set after first captcha lookup — requires migration 005)
   ecourts_case_no?: string | null;
   cnr_discovered_at?: string | null;
+  // eCourts Case Details cache (Layer 3 — requires add_case_details_cache.sql)
+  case_details_json?: Record<string, unknown> | null;
+  case_details_synced_at?: string | null;
+  ecourts_request_id?: string | null;
   created_at: string;
   updated_at: string;
 }

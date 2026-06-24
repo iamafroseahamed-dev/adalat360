@@ -62,20 +62,28 @@ class handler(BaseHTTPRequestHandler):
 
         # Primary search (with caseTypes filter)
         primary = self._search(headers, query, case_types)
-        if primary is None:
+        if primary.get('rateLimited'):
+            self._json({'success': False, 'rateLimited': True, 'message': 'eCourts rate limit reached. Please retry shortly.'}, 429)
+            return
+        if primary.get('error'):
             self._json({'success': False, 'message': 'Could not reach the eCourts server. Please try again later.'}, 503)
             return
 
         total_hits = int(primary.get('totalHits') or 0)
         results = primary.get('results') or []
+        request_id = primary.get('requestId')
         used_fallback = False
 
         # Fallback: drop the caseTypes filter when nothing matched the taxonomy
         if total_hits == 0 and case_types:
             fallback = self._search(headers, query, None)
-            if fallback is not None:
+            if fallback.get('rateLimited'):
+                self._json({'success': False, 'rateLimited': True, 'message': 'eCourts rate limit reached. Please retry shortly.'}, 429)
+                return
+            if not fallback.get('error'):
                 total_hits = int(fallback.get('totalHits') or 0)
                 results = fallback.get('results') or []
+                request_id = fallback.get('requestId') or request_id
                 used_fallback = True
 
         self._json({
@@ -83,6 +91,7 @@ class handler(BaseHTTPRequestHandler):
             'totalHits': total_hits,
             'caseData': results[0] if results else None,
             'usedFallback': used_fallback,
+            'requestId': request_id,
         })
 
     def _search(
@@ -90,7 +99,7 @@ class handler(BaseHTTPRequestHandler):
         headers: Dict[str, str],
         query: str,
         case_types: Optional[str],
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         params: Dict[str, str] = {'query': query, 'courtCodes': COURT_CODES}
         if case_types:
             params['caseTypes'] = case_types
@@ -101,22 +110,34 @@ class handler(BaseHTTPRequestHandler):
                 headers=headers,
                 timeout=(15, 25),
             )
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            return {'error': 'unreachable'}
+        except requests.RequestException:
+            return {'error': 'unreachable'}
+
+        # Surface 429 so the client can apply exponential backoff
+        if resp.status_code == 429:
+            return {'rateLimited': True}
+
+        try:
             resp.raise_for_status()
             payload = resp.json()
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
-            return None
-        except requests.RequestException:
-            return None
         except Exception:
-            return None
+            return {'error': 'unreachable'}
 
         # The upstream wraps the useful fields under "data" in some deployments.
         data = payload.get('data') if isinstance(payload, dict) and 'data' in payload else payload
         if not isinstance(data, dict):
-            return {'totalHits': 0, 'results': []}
+            return {'totalHits': 0, 'results': [], 'requestId': None}
+
+        # request_id may live under top-level meta or nested data.meta
+        meta = (payload.get('meta') if isinstance(payload, dict) else None) or data.get('meta') or {}
+        request_id = meta.get('request_id') if isinstance(meta, dict) else None
+
         return {
             'totalHits': data.get('totalHits', 0),
             'results': data.get('results', []),
+            'requestId': request_id,
         }
 
     def _json(self, data: Any, status: int = 200) -> None:
