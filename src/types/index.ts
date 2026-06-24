@@ -300,6 +300,23 @@ export interface UploadedFile {
   created_at: string;
 }
 
+export interface BulkUploadHistory {
+  id: string;
+  organization_id: string | null;
+  uploaded_by: string | null;
+  uploaded_by_email: string | null;
+  file_name: string;
+  import_mode: 'update_existing' | 'skip_existing';
+  status: 'validated' | 'imported' | 'failed';
+  total_records: number;
+  success_count: number;
+  error_count: number;
+  warning_count: number;
+  summary_json: Record<string, unknown> | null;
+  error_report_json: Record<string, unknown>[] | null;
+  created_at: string;
+}
+
 export interface CaseHearingHistory {
   id: string;
   organization_id: string;
@@ -349,6 +366,73 @@ export interface BulkUploadResult {
   failed: number;
   duplicates: number;
   rows: BulkUploadRow[];
+}
+
+export interface BulkImportIssue {
+  sheet: string;
+  rowNumber: number;
+  severity: 'error' | 'warning';
+  field?: string;
+  message: string;
+}
+
+export interface BulkImportSummary {
+  cases: number;
+  connectedCases: number;
+  tasks: number;
+  advocates: number;
+  notificationRecipients: number;
+}
+
+export interface BulkTemplateCaseRow {
+  case_number: string;
+  cnr_number?: string;
+  court_name?: string;
+  district?: string;
+  section?: string;
+  petitioner?: string;
+  respondent?: string;
+  case_status?: string;
+  next_hearing_date?: string;
+  advocate_status?: string;
+  client_name?: string;
+}
+
+export interface BulkTemplateConnectedCaseRow {
+  parent_case_number: string;
+  connected_case_number: string;
+  relationship_type?: string;
+}
+
+export interface BulkTemplateTaskRow {
+  case_number: string;
+  task_title: string;
+  task_description?: string;
+  assigned_to_name?: string;
+  assigned_to_email?: string;
+  assigned_to_mobile?: string;
+  due_date?: string;
+  related_hearing_date?: string;
+  priority?: string;
+}
+
+export interface BulkTemplateAdvocateRow {
+  advocate_name: string;
+  email?: string;
+  mobile?: string;
+  designation?: string;
+  active?: string | boolean;
+}
+
+export interface BulkTemplateNotificationRecipientRow {
+  name: string;
+  email?: string;
+  mobile_number?: string;
+  whatsapp_number?: string;
+  notify_email?: string | boolean;
+  notify_sms?: string | boolean;
+  notify_whatsapp?: string | boolean;
+  active?: string | boolean;
 }
 
 export interface CaseFilters {
