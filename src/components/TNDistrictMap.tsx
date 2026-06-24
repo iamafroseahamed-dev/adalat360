@@ -1,36 +1,29 @@
-import { useMemo, useState } from 'react';
-import { ComposableMap, Geographies, Geography, ZoomableGroup } from 'react-simple-maps';
-import { scaleLinear } from 'd3-scale';
-import { Tooltip } from 'react-tooltip';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import ReactECharts from 'echarts-for-react';
+import * as echarts from 'echarts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MapPin, Plus, Minus, RotateCcw } from 'lucide-react';
 import type { DistrictLitigation, DistrictDetail } from '@/lib/dashboardQueries';
 
 /**
- * Interactive Tamil Nadu district choropleth.
+ * Tamil Nadu Litigation Heat Map — Apache ECharts choropleth (React 19 safe).
  *
- * Renders true district boundaries from a bundled GeoJSON (no static images),
- * colours each district by total case load (green = lowest → orange → red =
- * highest), supports pan / zoom with on-screen controls and shows a rich hover
- * tooltip. Clicking a district drives the dashboard drill-down.
+ * Renders real district boundaries from a bundled GeoJSON, shaded by total case
+ * load (green = lowest → orange → red = highest). Supports pan/zoom with
+ * on-screen controls, a rich hover tooltip and click-to-drill-down. No
+ * react-simple-maps — builds cleanly on React 19 / Vercel with no peer conflicts.
  */
 
-// Same-origin static asset served from /public.
 const GEO_URL = '/tn-districts.geojson';
-
-// Default framing for Tamil Nadu (lon/lat centre + mercator scale).
-const DEFAULT_CENTER: [number, number] = [78.4, 11.0];
-const DEFAULT_ZOOM = 1;
-
+const MAP_NAME = 'tamilnadu';
+const DEFAULT_ZOOM = 1.2;
+const DEFAULT_CENTER: [number, number] = [78.5, 11.0];
 const NO_DATA = '#e2e8f0';   // slate-200 — districts with no recorded cases
-const BORDER = '#94a3b8';    // slate-400
 
 // Normalise a district name so GeoJSON spellings line up with cases.district.
 function norm(s: string): string {
-  return (s || '')
-    .toLowerCase()
-    .replace(/[^a-z]/g, '');
+  return (s || '').toLowerCase().replace(/[^a-z]/g, '');
 }
 
 // Common spelling variants between the GeoJSON and stored case districts.
@@ -42,18 +35,25 @@ const ALIASES: Record<string, string> = {
   kanniyakumari: 'kanyakumari',
   villupuram: 'viluppuram',
   tirupattur: 'tirupathur',
+  tiruppattur: 'tirupathur',
   kanchipuram: 'kancheepuram',
-  kancheepuram: 'kancheepuram',
   thenilgiris: 'nilgiris',
   virudunagar: 'virudhunagar',
-  tiruppattur: 'tirupathur',
-  thiruvarur: 'thiruvarur',
   nagappattinam: 'nagapattinam',
 };
 
 function canon(s: string): string {
   const n = norm(s);
   return ALIASES[n] ?? n;
+}
+
+interface DistrictDatum {
+  name: string;
+  value: number;        // total cases — drives the colour scale
+  pending: number;
+  disposed: number;
+  openTasks: number;
+  advocates: number;
 }
 
 export function TNDistrictMap({
@@ -65,34 +65,139 @@ export function TNDistrictMap({
   onSelect: (district: string) => void;
   loading: boolean;
 }) {
-  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
-  const [center, setCenter] = useState<[number, number]>(DEFAULT_CENTER);
+  const chartRef = useRef<ReactECharts>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [geoNames, setGeoNames] = useState<string[]>([]);
+  const [view, setView] = useState<{ zoom: number; center: [number, number] }>({
+    zoom: DEFAULT_ZOOM, center: DEFAULT_CENTER,
+  });
 
-  // Build a canonical-name → data lookup so the map can match GeoJSON features.
-  const { byCanon, detailByCanon, max } = useMemo(() => {
-    const byCanon = new Map<string, DistrictLitigation>();
+  // Load + register the GeoJSON once (served same-origin from /public).
+  useEffect(() => {
+    let active = true;
+    fetch(GEO_URL)
+      .then(r => r.json())
+      .then((geo: { features?: { properties?: Record<string, unknown> }[] }) => {
+        if (!active) return;
+        echarts.registerMap(MAP_NAME, geo as Parameters<typeof echarts.registerMap>[1]);
+        const names = (geo.features ?? [])
+          .map(f => (f.properties?.district as string) ?? '')
+          .filter(Boolean);
+        setGeoNames(names);
+        setMapReady(true);
+      })
+      .catch(() => { if (active) setMapReady(false); });
+    return () => { active = false; };
+  }, []);
+
+  // Merge case data onto every GeoJSON district by canonical name so colours and
+  // tooltips always line up with the boundary, even with spelling variants.
+  const { data, max } = useMemo(() => {
+    const litByCanon = new Map<string, DistrictLitigation>();
     let max = 0;
     for (const d of districts) {
-      byCanon.set(canon(d.district), d);
+      litByCanon.set(canon(d.district), d);
       if (d.total > max) max = d.total;
     }
-    const detailByCanon = new Map<string, DistrictDetail>();
-    for (const key of Object.keys(details)) detailByCanon.set(canon(key), details[key]);
-    return { byCanon, detailByCanon, max };
-  }, [districts, details]);
+    const detByCanon = new Map<string, DistrictDetail>();
+    for (const k of Object.keys(details)) detByCanon.set(canon(k), details[k]);
 
-  // Green → orange → red choropleth scale.
-  const colorScale = useMemo(
-    () => scaleLinear<string>()
-      .domain([0, Math.max(1, max) / 2, Math.max(1, max)])
-      .range(['#22c55e', '#f97316', '#dc2626'])
-      .clamp(true),
-    [max],
-  );
+    const data: DistrictDatum[] = geoNames.map(name => {
+      const key = canon(name);
+      const lit = litByCanon.get(key);
+      const det = detByCanon.get(key);
+      return {
+        name,
+        value: lit?.total ?? 0,
+        pending: lit?.pending ?? 0,
+        disposed: lit?.disposed ?? 0,
+        openTasks: det?.openTasks ?? 0,
+        advocates: det?.advocates ?? 0,
+      };
+    });
+    return { data, max };
+  }, [districts, details, geoNames]);
 
-  const zoomIn = () => setZoom(z => Math.min(8, +(z * 1.5).toFixed(2)));
-  const zoomOut = () => setZoom(z => Math.max(1, +(z / 1.5).toFixed(2)));
-  const reset = () => { setZoom(DEFAULT_ZOOM); setCenter(DEFAULT_CENTER); };
+  const selectedName = useMemo(() => {
+    if (!selected) return null;
+    const key = canon(selected);
+    return geoNames.find(n => canon(n) === key) ?? null;
+  }, [selected, geoNames]);
+
+  const option = useMemo(() => ({
+    tooltip: {
+      trigger: 'item' as const,
+      backgroundColor: '#0f172a',
+      borderColor: '#0f172a',
+      textStyle: { color: '#fff', fontSize: 12 },
+      formatter: (p: { name: string; data?: DistrictDatum }) => {
+        const d = p.data;
+        const row = (label: string, val: number) =>
+          `<div style="display:flex;justify-content:space-between;gap:18px"><span>${label}</span><b>${val}</b></div>`;
+        return (
+          `<div style="min-width:184px">` +
+          `<div style="font-weight:700;margin-bottom:4px">${p.name}</div>` +
+          row('Total Cases', d?.value ?? 0) +
+          row('Pending', d?.pending ?? 0) +
+          row('Disposed', d?.disposed ?? 0) +
+          row('Open Tasks', d?.openTasks ?? 0) +
+          row('Assigned Advocates', d?.advocates ?? 0) +
+          `<div style="margin-top:4px;opacity:.7;font-size:11px">${(d?.value ?? 0) > 0 ? 'Click to drill down' : 'No recorded cases'}</div>` +
+          `</div>`
+        );
+      },
+    },
+    visualMap: {
+      min: 0,
+      max: Math.max(1, max),
+      left: 8,
+      bottom: 8,
+      calculable: true,
+      itemHeight: 120,
+      text: ['High', 'Low'],
+      textStyle: { fontSize: 11 },
+      inRange: { color: ['#22c55e', '#f97316', '#dc2626'] },
+    },
+    series: [{
+      name: 'Litigation',
+      type: 'map' as const,
+      map: MAP_NAME,
+      nameProperty: 'district',
+      roam: true,
+      zoom: view.zoom,
+      center: view.center,
+      layoutCenter: ['50%', '50%'],
+      layoutSize: '100%',
+      scaleLimit: { min: 1, max: 12 },
+      selectedMode: 'single' as const,
+      label: { show: false },
+      itemStyle: { borderColor: '#94a3b8', borderWidth: 0.5, areaColor: NO_DATA },
+      emphasis: {
+        label: { show: true, fontSize: 10, color: '#0f172a' },
+        itemStyle: { borderColor: '#1d4ed8', borderWidth: 1.4 },
+      },
+      select: {
+        label: { show: true, fontSize: 10 },
+        itemStyle: { borderColor: '#1d4ed8', borderWidth: 1.8 },
+      },
+      data: data.map(d => (selectedName && d.name === selectedName ? { ...d, selected: true } : d)),
+    }],
+  }), [data, max, view, selectedName]);
+
+  const zoomBy = (factor: number) => {
+    const inst = chartRef.current?.getEchartsInstance();
+    const series = inst?.getOption()?.series as Array<{ zoom?: number; center?: [number, number] }> | undefined;
+    const cur = series?.[0];
+    const curZoom = cur?.zoom ?? view.zoom;
+    const curCenter = (cur?.center as [number, number]) ?? view.center;
+    const next = Math.min(12, Math.max(1, +(curZoom * factor).toFixed(2)));
+    setView({ zoom: next, center: curCenter });
+  };
+  const reset = () => setView({ zoom: DEFAULT_ZOOM, center: DEFAULT_CENTER });
+
+  const onEvents = useMemo(() => ({
+    click: (p: { name?: string }) => { if (p?.name) onSelect(p.name); },
+  }), [onSelect]);
 
   return (
     <Card>
@@ -100,88 +205,32 @@ export function TNDistrictMap({
         <div className="flex items-start justify-between gap-2">
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
-              <MapPin className="h-4 w-4 text-red-600" /> Tamil Nadu Litigation Map
+              <MapPin className="h-4 w-4 text-red-600" /> Tamil Nadu Litigation Heat Map
             </CardTitle>
             <p className="text-xs text-muted-foreground">District boundaries shaded by case load. Hover for details, click to drill down.</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Button type="button" size="icon" variant="outline" className="h-7 w-7" onClick={zoomIn} aria-label="Zoom in" title="Zoom in"><Plus className="h-4 w-4" /></Button>
-            <Button type="button" size="icon" variant="outline" className="h-7 w-7" onClick={zoomOut} aria-label="Zoom out" title="Zoom out"><Minus className="h-4 w-4" /></Button>
+            <Button type="button" size="icon" variant="outline" className="h-7 w-7" onClick={() => zoomBy(1.4)} aria-label="Zoom in" title="Zoom in"><Plus className="h-4 w-4" /></Button>
+            <Button type="button" size="icon" variant="outline" className="h-7 w-7" onClick={() => zoomBy(1 / 1.4)} aria-label="Zoom out" title="Zoom out"><Minus className="h-4 w-4" /></Button>
             <Button type="button" size="icon" variant="outline" className="h-7 w-7" onClick={reset} aria-label="Reset view" title="Reset view"><RotateCcw className="h-4 w-4" /></Button>
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        {loading ? (
-          <div className="h-[440px] w-full animate-pulse rounded-md bg-muted" />
+        {loading || !mapReady ? (
+          <div className="h-[460px] w-full animate-pulse rounded-md bg-muted" />
         ) : (
           <>
-            <div className="relative overflow-hidden rounded-md border bg-slate-50">
-              <ComposableMap
-                projection="geoMercator"
-                projectionConfig={{ center: DEFAULT_CENTER, scale: 4200 }}
-                width={800}
-                height={620}
-                style={{ width: '100%', height: 'auto' }}
-              >
-                <ZoomableGroup
-                  zoom={zoom}
-                  center={center}
-                  minZoom={1}
-                  maxZoom={8}
-                  onMoveEnd={({ coordinates, zoom }) => { setCenter(coordinates as [number, number]); setZoom(zoom); }}
-                >
-                  <Geographies geography={GEO_URL}>
-                    {({ geographies }) =>
-                      geographies.map(geo => {
-                        const name = (geo.properties.district as string) ?? '';
-                        const key = canon(name);
-                        const d = byCanon.get(key);
-                        const det = detailByCanon.get(key);
-                        const total = d?.total ?? 0;
-                        const isSel = selected != null && canon(selected) === key;
-                        const fill = total > 0 ? (colorScale(total) as string) : NO_DATA;
-                        const html = `
-                          <div style="min-width:170px">
-                            <div style="font-weight:700;margin-bottom:4px">${name}</div>
-                            <div style="display:flex;justify-content:space-between;gap:16px"><span>Total Cases</span><b>${total}</b></div>
-                            <div style="display:flex;justify-content:space-between;gap:16px"><span>Pending</span><b>${d?.pending ?? 0}</b></div>
-                            <div style="display:flex;justify-content:space-between;gap:16px"><span>Disposed</span><b>${d?.disposed ?? 0}</b></div>
-                            <div style="display:flex;justify-content:space-between;gap:16px"><span>Open Tasks</span><b>${det?.openTasks ?? 0}</b></div>
-                            ${total === 0 ? '<div style="margin-top:4px;opacity:.7;font-size:11px">No recorded cases</div>' : '<div style="margin-top:4px;opacity:.7;font-size:11px">Click to drill down</div>'}
-                          </div>`;
-                        return (
-                          <Geography
-                            key={geo.rsmKey}
-                            geography={geo}
-                            onClick={() => onSelect(name)}
-                            data-tooltip-id="tn-map-tip"
-                            data-tooltip-html={html}
-                            style={{
-                              default: {
-                                fill,
-                                stroke: isSel ? '#1d4ed8' : BORDER,
-                                strokeWidth: isSel ? 1.6 : 0.5,
-                                outline: 'none',
-                                cursor: 'pointer',
-                              },
-                              hover: {
-                                fill,
-                                stroke: '#1d4ed8',
-                                strokeWidth: 1.2,
-                                outline: 'none',
-                                cursor: 'pointer',
-                                filter: 'brightness(0.92)',
-                              },
-                              pressed: { fill, stroke: '#1d4ed8', strokeWidth: 1.6, outline: 'none' },
-                            }}
-                          />
-                        );
-                      })
-                    }
-                  </Geographies>
-                </ZoomableGroup>
-              </ComposableMap>
+            <div className="overflow-hidden rounded-md border bg-slate-50">
+              <ReactECharts
+                ref={chartRef}
+                echarts={echarts}
+                option={option}
+                onEvents={onEvents}
+                notMerge={false}
+                lazyUpdate
+                style={{ height: 460, width: '100%' }}
+              />
             </div>
 
             {/* Legend */}
@@ -197,7 +246,6 @@ export function TNDistrictMap({
             </div>
           </>
         )}
-        <Tooltip id="tn-map-tip" float className="!rounded-md !bg-slate-900 !px-3 !py-2 !text-xs !text-white !opacity-100 !shadow-lg" />
       </CardContent>
     </Card>
   );
