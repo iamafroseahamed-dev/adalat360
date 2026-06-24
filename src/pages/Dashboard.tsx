@@ -302,6 +302,7 @@ export default function DashboardPage() {
   const statusData   = num(statusMix.data);
   const disposalData = num(disposal.data);
   const sectionData  = (a?.sections ?? []).map(s => ({ ...s, value: Number(s.value) }));
+  const advStatusData = (a?.advocateStatusDistribution ?? []).map(s => ({ ...s, value: Number(s.value) }));
 
   const anyError = exec.error || statusMix.error || disposal.error || hearings.error || listings.error;
 
@@ -713,6 +714,66 @@ export default function DashboardPage() {
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>
+      </div>
+
+      {/* Advocate Status Distribution (internal readiness) */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <ChartCard title="Advocate Status Distribution" loading={exec.isLoading} empty={advStatusData.length === 0}>
+          <ResponsiveContainer>
+            <PieChart>
+              <Pie data={advStatusData} dataKey="value" nameKey="label" cx="50%" cy="50%"
+                innerRadius={55} outerRadius={90} paddingAngle={2}>
+                {advStatusData.map((_, i) => (
+                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend verticalAlign="bottom" height={24} iconType="circle" />
+            </PieChart>
+          </ResponsiveContainer>
+        </ChartCard>
+        <Card className="lg:col-span-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base"><Gavel className="h-4 w-4 text-emerald-600" /> Advocate Activity Breakdown</CardTitle>
+            <p className="text-xs text-muted-foreground">Internal progress across all cases — distinct from court status</p>
+          </CardHeader>
+          <CardContent className="p-0">
+            {exec.isLoading ? (
+              <div className="space-y-2 p-4">{[1, 2, 3].map(i => <Skeleton key={i} className="h-8" />)}</div>
+            ) : advStatusData.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">No advocate status recorded yet. Set an advocate status when editing a case.</p>
+            ) : (
+              <div className="max-h-[300px] overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b text-left text-xs text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">Advocate Status</th>
+                      <th className="px-3 py-2 text-right font-medium">Cases</th>
+                      <th className="px-3 py-2 text-right font-medium">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {advStatusData.map((r, i) => {
+                      const total = advStatusData.reduce((s, x) => s + x.value, 0) || 1;
+                      return (
+                        <tr key={`${r.label}-${i}`} className="border-b last:border-0">
+                          <td className="px-3 py-2">
+                            <span className="inline-flex items-center gap-2">
+                              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                              {r.label}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">{r.value}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{Math.round((r.value / total) * 100)}%</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Disposal outcomes + hearing trend */}
