@@ -11,11 +11,12 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  ChevronLeft, ChevronRight, Download, ExternalLink, FileText, Loader2, Video, X,
+  ChevronLeft, ChevronRight, Download, ExternalLink, FileText, Loader2, Scale, Video, X,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import { CaseDetailsModal } from '@/components/CaseDetailsModal';
 import type { TodayMatchedListing } from '@/types';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -96,6 +97,10 @@ export default function TodaysListingsPage() {
   const [orderDetails, setOrderDetails]           = useState<MhcOrderDetails | null>(null);
   const [orderLoading, setOrderLoading]           = useState(false);
   const [orderError, setOrderError]               = useState<string | null>(null);
+
+  // ── eCourts Case Details modal state ─────────────────────────────────────────
+  const [caseDetailsOpen, setCaseDetailsOpen]     = useState(false);
+  const [caseDetailsNumber, setCaseDetailsNumber] = useState<string | null>(null);
 
   // ── Filters ──────────────────────────────────────────────────────────────────
   const todayUtc = useMemo(() => new Date().toISOString().split('T')[0], []);
@@ -470,16 +475,28 @@ export default function TodaysListingsPage() {
                           <NotifBadge status={record.notification_status} />
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 gap-1 text-xs"
-                            disabled={!record.case_number}
-                            onClick={() => fetchCaseDetails(record)}
-                          >
-                            <FileText className="h-3 w-3" />
-                            View Details
-                          </Button>
+                          <div className="flex items-center gap-1.5">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 text-xs"
+                              disabled={!record.case_number}
+                              onClick={() => fetchCaseDetails(record)}
+                            >
+                              <FileText className="h-3 w-3" />
+                              View Details
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 text-xs"
+                              disabled={!record.case_number}
+                              onClick={() => { setCaseDetailsNumber(record.case_number); setCaseDetailsOpen(true); }}
+                            >
+                              <Scale className="h-3 w-3" />
+                              Case Details
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>,
                     ].filter(Boolean);
@@ -643,6 +660,13 @@ export default function TodaysListingsPage() {
           })()}
         </DialogContent>
       </Dialog>
+
+      {/* ── eCourts Case Details Modal ── */}
+      <CaseDetailsModal
+        caseNumber={caseDetailsNumber}
+        open={caseDetailsOpen}
+        onOpenChange={setCaseDetailsOpen}
+      />
     </div>
   );
 }

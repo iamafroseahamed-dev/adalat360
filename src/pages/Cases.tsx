@@ -15,8 +15,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Plus, Search, Edit2, Eye, ExternalLink, FileText, Filter, Loader2, X, PowerOff, RefreshCw, Download } from 'lucide-react';
+import { Plus, Search, Edit2, Eye, ExternalLink, FileText, Filter, Loader2, X, PowerOff, RefreshCw, Download, Scale } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { CaseDetailsModal } from '@/components/CaseDetailsModal';
 import type { Case } from '@/types';
 
 const COURTS = [
@@ -267,6 +268,10 @@ export default function CasesPage() {
   const [orderDetails, setOrderDetails]     = useState<MhcOrderDetails | null>(null);
   const [orderLoading, setOrderLoading]     = useState(false);
   const [orderError, setOrderError]         = useState<string | null>(null);
+
+  // ── eCourts Case Details modal state ─────────────────────────────────────────
+  const [caseDetailsOpen, setCaseDetailsOpen]   = useState(false);
+  const [caseDetailsNumber, setCaseDetailsNumber] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -604,6 +609,11 @@ export default function CasesPage() {
                           onClick={() => fetchCaseDetails(c)}>
                           <FileText className="w-3.5 h-3.5" />
                         </Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-primary" title="Case Details"
+                          disabled={!c.case_number}
+                          onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsOpen(true); }}>
+                          <Scale className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -823,6 +833,13 @@ export default function CasesPage() {
           })()}
         </DialogContent>
       </Dialog>
+
+      {/* ── eCourts Case Details Modal ── */}
+      <CaseDetailsModal
+        caseNumber={caseDetailsNumber}
+        open={caseDetailsOpen}
+        onOpenChange={setCaseDetailsOpen}
+      />
     </div>
   );
 }
