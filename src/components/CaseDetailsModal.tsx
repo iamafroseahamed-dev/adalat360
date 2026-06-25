@@ -621,73 +621,81 @@ export function CaseDetailsModal({
         if (!o) { setCaseData(null); setError(null); setSource(null); }
       }}
     >
-      <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-[1200px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-2 pr-8">
-            <span className="font-mono">{val(caseData?.registrationNumber) === '\u2014' ? caseNumber : caseData?.registrationNumber}</span>
-            {caseData?.caseStatus && (
-              <Badge variant={String(caseData.caseStatus).toLowerCase() === 'pending' ? 'warning' : 'secondary'}>
-                {caseData.caseStatus}
-              </Badge>
-            )}
-            {caseData?.courtName && (
-              <span className="text-sm font-normal text-muted-foreground">{caseData.courtName}</span>
-            )}
-            {import.meta.env.DEV && source && (
-              <Badge variant="info" className="text-[10px]">Source: {source}</Badge>
-            )}
-            <div className="ml-auto flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1 text-xs"
-                disabled={loadingApi || loadingCached || syncing || !caseNumber}
-                onClick={() => caseNumber && load(caseNumber, caseId, true)}
-              >
-                <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
-                Refresh Data
-              </Button>
-              {allowSync && caseId && (
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="h-7 gap-1 text-xs"
-                  disabled={syncing || loadingApi || loadingCached || !caseNumber}
-                  onClick={handleSync}
-                >
-                  {syncing
-                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                    : <DownloadCloud className="h-3 w-3" />}
-                  {syncing ? 'Synchronizing...' : 'Sync Case'}
-                </Button>
+      <DialogContent className="flex max-h-[92vh] max-w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-w-[1200px]">
+        {/* ── Fixed workspace header ── */}
+        <div className="shrink-0 border-b border-border/70 bg-gradient-to-br from-slate-50 to-white px-4 py-4 sm:px-6">
+          <DialogHeader>
+            <DialogTitle className="flex flex-wrap items-center gap-2.5 pr-8">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Scale className="h-[1.1rem] w-[1.1rem]" />
+              </span>
+              <span className="font-mono text-base">{val(caseData?.registrationNumber) === '\u2014' ? caseNumber : caseData?.registrationNumber}</span>
+              {caseData?.caseStatus && (
+                <Badge variant={String(caseData.caseStatus).toLowerCase() === 'pending' ? 'warning' : 'secondary'}>
+                  {caseData.caseStatus}
+                </Badge>
               )}
+              {caseData?.courtName && (
+                <span className="text-sm font-normal text-muted-foreground">{caseData.courtName}</span>
+              )}
+              {import.meta.env.DEV && source && (
+                <Badge variant="info" className="text-[10px]">Source: {source}</Badge>
+              )}
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs"
+                  disabled={loadingApi || loadingCached || syncing || !caseNumber}
+                  onClick={() => caseNumber && load(caseNumber, caseId, true)}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                  Refresh Data
+                </Button>
+                {allowSync && caseId && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    disabled={syncing || loadingApi || loadingCached || !caseNumber}
+                    onClick={handleSync}
+                  >
+                    {syncing
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <DownloadCloud className="h-3.5 w-3.5" />}
+                    {syncing ? 'Synchronizing...' : 'Sync Case'}
+                  </Button>
+                )}
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+
+          {syncing && (
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-border/70 bg-white/70 px-3 py-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Synchronizing case details...
             </div>
-          </DialogTitle>
-        </DialogHeader>
+          )}
 
-        {syncing && (
-          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Synchronizing case details...
-          </div>
-        )}
+          {caseId && summary && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">
+                Connected Cases <strong className="tabular-nums">{summary.connections}</strong>
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                Open Tasks <strong className="tabular-nums">{summary.openTasks}</strong>
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                Notes <strong className="tabular-nums">{summary.notes}</strong>
+              </span>
+            </div>
+          )}
+        </div>
 
-        {caseId && summary && (
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">
-              Connected Cases: <strong>{summary.connections}</strong>
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-              Open Tasks: <strong>{summary.openTasks}</strong>
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-              Notes: <strong>{summary.notes}</strong>
-            </span>
-          </div>
-        )}
-
-        <Tabs value={tab} onValueChange={setTab} className="mt-1">
-          <TabsList className="sticky top-0 z-10 flex w-full justify-start gap-1 overflow-x-auto rounded-lg">
+        {/* ── Scrollable workspace body ── */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="sticky top-0 z-10 mb-4 flex w-full justify-start gap-1 overflow-x-auto">
             <TabsTrigger value="overview">Case Information</TabsTrigger>
             <TabsTrigger value="ecourts">Hearing History</TabsTrigger>
             <TabsTrigger value="history">Case History</TabsTrigger>
