@@ -28,6 +28,7 @@ import { TaskFormDialog } from '@/components/TaskFormDialog';
 import { AddConnectionDialog } from '@/components/AddConnectionDialog';
 import { addConnection, loadConnectionCounts, type CaseSearchResult } from '@/lib/connections';
 import { ADVOCATE_STATUSES, advocateStatusClasses, advocateStatusShort } from '@/lib/caseManagement';
+import { deriveCaseType } from '@/lib/caseType';
 import { DEVELOPER_NAME, DEVELOPER_EMAIL } from '@/lib/appInfo';
 import { useAuth } from '@/lib/auth';
 import { useOrg } from '@/lib/orgContext';
@@ -139,6 +140,8 @@ function CaseForm({ initial, advocates, orgId, onSave, onCancel, saving }: {
   const [taskDraft, setTaskDraft] = useState<DraftTask>({ task_title: '', task_description: '', assigned_to_name: '', assigned_to_email: '', assigned_to_mobile: '', priority: 'Medium', due_date: null });
   const [connections, setConnections] = useState<DraftConnection[]>([]);
   const [connOpen, setConnOpen] = useState(false);
+
+  const derivedCaseType = deriveCaseType(form.case_number);
 
   const txt = (f: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm(p => ({ ...p, [f]: e.target.value || null }));
@@ -664,7 +667,8 @@ export default function CasesPage() {
     try {
       let caseId: string;
       if (dialogMode === 'add') {
-        const payload: Record<string, unknown> = { ...data, created_at: now, updated_at: now, organization_id: orgId };
+        const payload: Record<string, unknown> = { ...data, created_at: now, updated_at: now, organization_id: formOrgId };
+        if (!data.case_type && data.case_number) payload.case_type = deriveCaseType(data.case_number);
         if (data.assigned_advocate_name) payload.assigned_on = now;
         const { data: inserted, error: err } = await supabase.from('cases')
           .insert(payload).select('id').single();
@@ -707,7 +711,7 @@ export default function CasesPage() {
         );
       }
       for (const c of extras.connections) {
-        try { await addConnection(caseId, c.case.id, c.relationship_type, orgId); }
+        try { await addConnection(caseId, c.case.id, c.relationship_type, formOrgId); }
         catch (e) { toast.error(e instanceof Error ? e.message : 'A connection could not be saved.'); }
       }
 
