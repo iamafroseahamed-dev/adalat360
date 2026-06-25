@@ -156,7 +156,7 @@ export async function fetchAdvocates(actorRole: Role | null | undefined, orgId: 
   const today = new Date().toISOString().slice(0, 10);
   const byAdvocate = new Map<string, AdvocateSummary>();
 
-  for (const row of (data ?? []) as AdvocateCaseRow[]) {
+  for (const row of (data ?? []) as unknown as AdvocateCaseRow[]) {
     const name = (row.assigned_advocate_name || row.advocate_name || '').trim();
     if (!name) continue;
 
