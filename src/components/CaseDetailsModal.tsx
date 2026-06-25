@@ -7,7 +7,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { DownloadCloud, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { DownloadCloud, Loader2, RefreshCw, Scale, Sparkles } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CaseNotesTab } from '@/components/CaseNotesTab';
 import { CaseTasksTab } from '@/components/CaseTasksTab';
@@ -267,7 +267,8 @@ function toIsoDate(value: string | null | undefined): string | null {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="mb-3 border-b pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <h3 className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+      <span className="h-3.5 w-1 rounded-full bg-primary/60" aria-hidden="true" />
       {children}
     </h3>
   );
@@ -277,7 +278,7 @@ function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="space-y-0.5">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium">{value}</dd>
+      <dd className="text-sm font-medium text-foreground">{value}</dd>
     </div>
   );
 }
@@ -295,10 +296,10 @@ function PartyList({ items }: { items: Array<string | number> | null | undefined
 
 function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <Card>
-      <CardContent className="px-3 py-3 text-center">
-        <p className="text-2xl font-bold">{value}</p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">{label}</p>
+    <Card className="bg-gradient-to-br from-slate-50 to-white">
+      <CardContent className="px-3 py-3.5 text-center">
+        <p className="text-2xl font-bold tabular-nums text-foreground">{value}</p>
+        <p className="mt-0.5 text-[11px] font-medium text-muted-foreground">{label}</p>
       </CardContent>
     </Card>
   );
@@ -893,6 +894,7 @@ export function CaseDetailsModal({
             <AiInsightsTab caseId={caseId} caseNumber={caseNumber} caseData={caseData} />
           </TabsContent>
         </Tabs>
+        </div>
       </DialogContent>
 
       {viewCase && (

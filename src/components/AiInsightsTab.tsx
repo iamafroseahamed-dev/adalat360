@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Loader2, Sparkles, RefreshCw, ShieldAlert, FileText, TrendingUp, Building2, ClipboardList, Target, Lightbulb, ListChecks, AlertTriangle, Gavel } from 'lucide-react';
+import { Loader2, Sparkles, RefreshCw, ShieldAlert, FileText, TrendingUp, Building2, ClipboardList, Target, Lightbulb, ListChecks, AlertTriangle, Gavel, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -66,15 +66,6 @@ function fmtDateTime(value: string | null | undefined): string {
 
 function toList(value: string[] | null | undefined): string[] {
   return Array.isArray(value) ? value.filter(Boolean) : [];
-}
-
-function riskVariant(level: string | null | undefined): 'success' | 'warning' | 'destructive' | 'secondary' {
-  switch ((level ?? '').toLowerCase()) {
-    case 'high': return 'destructive';
-    case 'medium': return 'warning';
-    case 'low': return 'success';
-    default: return 'secondary';
-  }
 }
 
 function asStr(value: unknown): string {
@@ -454,13 +445,14 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-blue-50 to-white px-4 py-4">
-        <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-sm">
+      <div className="relative flex flex-wrap items-center justify-between gap-3 overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-blue-50/60 to-white px-5 py-4 shadow-xs">
+        <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-indigo-200/30 blur-2xl" aria-hidden="true" />
+        <div className="flex items-start gap-3.5">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/25">
             <Sparkles className="h-5 w-5" />
           </span>
           <div>
-            <p className="text-sm font-semibold text-indigo-950">Legal Intelligence Workspace</p>
+            <p className="text-[0.9375rem] font-bold tracking-tight text-indigo-950">Legal Intelligence Report</p>
             <p className="text-xs text-muted-foreground">
               {record ? `Generated ${fmtDateTime(record.generated_at)}` : 'AI-generated senior-advocate analysis from cached case details, orders and notes.'}
             </p>
@@ -469,14 +461,14 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
             )}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="relative flex flex-wrap gap-2">
           {!record ? (
-            <Button size="sm" className="gap-1" disabled={generating || loading} onClick={() => void generate(false)}>
+            <Button size="sm" className="gap-1.5" disabled={generating || loading} onClick={() => void generate(false)}>
               {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               Generate AI Analysis
             </Button>
           ) : (
-            <Button size="sm" variant="outline" className="gap-1" disabled={generating} onClick={() => void generate(true)}>
+            <Button size="sm" variant="outline" className="gap-1.5" disabled={generating} onClick={() => void generate(true)}>
               {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               Refresh AI Analysis
             </Button>
@@ -493,13 +485,13 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
       )}
 
       {!loading && !generating && error && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">
           {error}
         </div>
       )}
 
       {!loading && !generating && !error && staleAnalysis && (
-        <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           Case data changed since last AI analysis. Refresh recommended.
         </div>
@@ -510,7 +502,7 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
           icon={Sparkles}
           title="No AI analysis yet"
           description="Generate a senior-advocate style legal analysis with risk assessment, hearing trends and an action plan. Runs only when you click."
-          action={<Button size="sm" className="gap-1" disabled={generating} onClick={() => void generate(false)}><Sparkles className="h-4 w-4" />Generate AI Analysis</Button>}
+          action={<Button size="sm" className="gap-1.5" disabled={generating} onClick={() => void generate(false)}><Sparkles className="h-4 w-4" />Generate AI Analysis</Button>}
         />
       )}
 
@@ -518,31 +510,26 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
         <div className="space-y-4">
           {/* 1. Executive Legal Summary + risk header */}
           <div className="grid gap-4 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
-              <CardHeader className="flex flex-row items-center gap-2 pb-2">
+            <Card className="relative overflow-hidden lg:col-span-2">
+              <span className="absolute inset-y-0 left-0 w-1 bg-indigo-500" aria-hidden="true" />
+              <CardHeader className="flex flex-row items-center gap-2 pb-2 pl-7">
                 <FileText className="h-4 w-4 text-indigo-600" />
-                <CardTitle className="text-base">Executive Legal Summary</CardTitle>
+                <CardTitle>Executive Legal Summary</CardTitle>
               </CardHeader>
-              <CardContent>
-                <p className="text-sm leading-relaxed">{analysis.executive_legal_summary || '\u2014'}</p>
+              <CardContent className="pl-7">
+                <p className="text-sm leading-relaxed text-foreground/90">{analysis.executive_legal_summary || '\u2014'}</p>
               </CardContent>
             </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                <ShieldAlert className="h-4 w-4 text-rose-600" />
-                <CardTitle className="text-base">Litigation Risk</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Badge variant={riskVariant(analysis.litigation_risk_assessment.level)}>{analysis.litigation_risk_assessment.level} Risk</Badge>
-                <p className="text-sm">{analysis.litigation_risk_assessment.rationale}</p>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  {analysis.attention_required && <Badge variant="destructive">Immediate Attention</Badge>}
-                  {analysis.no_activity && <Badge variant="warning">No Activity</Badge>}
-                  {analysis.long_pending && <Badge variant="warning">Long Pending</Badge>}
-                  {analysis.upcoming_hearing && <Badge variant="info">Upcoming Hearing</Badge>}
-                </div>
-              </CardContent>
-            </Card>
+            <RiskCard
+              level={analysis.litigation_risk_assessment.level}
+              rationale={analysis.litigation_risk_assessment.rationale}
+              flags={{
+                attention: analysis.attention_required,
+                noActivity: analysis.no_activity,
+                longPending: analysis.long_pending,
+                upcoming: analysis.upcoming_hearing,
+              }}
+            />
           </div>
 
           {/* 2 & 3. Risk factors + hearing trend */}
@@ -590,22 +577,25 @@ export function AiInsightsTab({ caseId, caseNumber, caseData }: { caseId: string
           <BulletCard icon={<AlertTriangle className="h-4 w-4 text-amber-600" />} title="Similar Case Risk Indicators" items={toList(analysis.similar_case_risk_indicators)} />
 
           {/* 10. AI Generated Action Plan */}
-          <Card>
-            <CardHeader className="flex flex-row items-center gap-2 pb-2">
+          <Card className="relative overflow-hidden">
+            <span className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-indigo-500 to-blue-500" aria-hidden="true" />
+            <CardHeader className="flex flex-row items-center gap-2 pb-2 pl-7">
               <Sparkles className="h-4 w-4 text-indigo-600" />
-              <CardTitle className="text-base">AI Generated Action Plan</CardTitle>
+              <CardTitle>AI Generated Action Plan</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pl-7">
               {analysis.ai_action_plan.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No action plan returned.</p>
               ) : (
-                <ol className="space-y-2">
+                <ol className="space-y-2.5">
                   {analysis.ai_action_plan.map((item, idx) => (
-                    <li key={`${item.step}-${idx}`} className="flex items-start gap-3 rounded-md border bg-muted/10 px-3 py-2 text-sm">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white">{idx + 1}</span>
+                    <li key={`${item.step}-${idx}`} className="flex items-start gap-3 rounded-xl border border-border/70 bg-slate-50/60 px-3.5 py-3 text-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50/40">
+                      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-600 to-blue-600 text-xs font-semibold text-white shadow-sm">{idx + 1}</span>
                       <div className="flex-1">
-                        <p>{item.step}</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">Owner: {item.owner}</p>
+                        <p className="leading-relaxed text-foreground/90">{item.step}</p>
+                        <p className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <span className="h-1 w-1 rounded-full bg-muted-foreground/50" /> Owner: {item.owner}
+                        </p>
                       </div>
                       <Badge variant={priorityVariant(item.priority)}>{item.priority}</Badge>
                     </li>
@@ -655,19 +645,58 @@ function priorityVariant(level: string): 'destructive' | 'warning' | 'secondary'
 function TextRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm">{value || '\u2014'}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm leading-relaxed text-foreground/90">{value || '\u2014'}</p>
     </div>
+  );
+}
+
+const RISK_STYLES: Record<string, { ring: string; text: string; bar: string; chip: string; segments: number }> = {
+  High:   { ring: 'border-rose-200 bg-rose-50',   text: 'text-rose-700',   bar: 'bg-rose-500',   chip: 'bg-rose-100 text-rose-700',   segments: 3 },
+  Medium: { ring: 'border-amber-200 bg-amber-50', text: 'text-amber-700',  bar: 'bg-amber-500',  chip: 'bg-amber-100 text-amber-700', segments: 2 },
+  Low:    { ring: 'border-emerald-200 bg-emerald-50', text: 'text-emerald-700', bar: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-700', segments: 1 },
+};
+
+function RiskCard({ level, rationale, flags }: {
+  level: 'Low' | 'Medium' | 'High';
+  rationale: string;
+  flags: { attention: boolean; noActivity: boolean; longPending: boolean; upcoming: boolean };
+}) {
+  const s = RISK_STYLES[level] ?? RISK_STYLES.Medium;
+  return (
+    <Card className={`relative overflow-hidden border ${s.ring}`}>
+      <CardHeader className="flex flex-row items-center gap-2 pb-2">
+        <ShieldAlert className={`h-4 w-4 ${s.text}`} />
+        <CardTitle>Litigation Risk</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className={`text-2xl font-bold tracking-tight ${s.text}`}>{level} Risk</span>
+          <div className="flex items-end gap-1" aria-hidden="true">
+            {[1, 2, 3].map(i => (
+              <span key={i} className={`w-2 rounded-sm ${i <= s.segments ? s.bar : 'bg-slate-200'}`} style={{ height: `${8 + i * 6}px` }} />
+            ))}
+          </div>
+        </div>
+        <p className="text-sm leading-relaxed text-foreground/90">{rationale || '\u2014'}</p>
+        <div className="flex flex-wrap gap-2 pt-1 text-xs">
+          {flags.attention && <Badge variant="destructive">Immediate Attention</Badge>}
+          {flags.noActivity && <Badge variant="warning">No Activity</Badge>}
+          {flags.longPending && <Badge variant="warning">Long Pending</Badge>}
+          {flags.upcoming && <Badge variant="info">Upcoming Hearing</Badge>}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
 function BulletList({ items }: { items: string[] }) {
   if (items.length === 0) return <p className="text-sm text-muted-foreground">\u2014</p>;
   return (
-    <ul className="space-y-1">
+    <ul className="space-y-2">
       {items.map((item, idx) => (
-        <li key={`${item}-${idx}`} className="flex items-start gap-2 text-sm">
-          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/60" />
+        <li key={`${item}-${idx}`} className="flex items-start gap-2.5 text-sm leading-relaxed text-foreground/90">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500/80" />
           <span>{item}</span>
         </li>
       ))}
@@ -680,7 +709,10 @@ function BulletCard({ icon, title, items }: { icon: ReactNode; title: string; it
     <Card>
       <CardHeader className="flex flex-row items-center gap-2 pb-2">
         {icon}
-        <CardTitle className="text-base">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
+        {items.length > 0 && (
+          <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-slate-100 px-1.5 text-[11px] font-semibold tabular-nums text-slate-500">{items.length}</span>
+        )}
       </CardHeader>
       <CardContent>
         <BulletList items={items} />
