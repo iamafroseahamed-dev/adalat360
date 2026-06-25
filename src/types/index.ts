@@ -43,7 +43,8 @@ export interface Profile {
   role: Role;
   active: boolean;
   created_at: string;
-  // User Management (migration 017)
+  // User Management (migration 017 / 019)
+  mobile?: string | null;
   last_login_at?: string | null;
   email_notifications?: boolean;
   notify_hearing_reminder?: boolean;
