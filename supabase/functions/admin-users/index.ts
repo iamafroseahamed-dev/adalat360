@@ -157,6 +157,29 @@ Deno.serve(async (req: Request) => {
     return { target };
   }
 
+  // Demotes any other super_admin in an organization to 'admin' so that each
+  // organization has at most one super admin. Returns the demoted identifiers.
+  async function demoteOtherSuperAdmins(organizationId: string, exceptUserId: string | null) {
+    const { data: current } = await admin
+      .from('profiles')
+      .select('id, user_id, email')
+      .eq('organization_id', organizationId)
+      .eq('role', 'super_admin');
+
+    const demoted: string[] = [];
+    for (const row of current ?? []) {
+      if (exceptUserId && row.user_id === exceptUserId) continue;
+      const { error } = await admin.from('profiles').update({ role: 'admin' }).eq('id', row.id);
+      if (!error) {
+        demoted.push(row.email ?? row.id);
+        await audit('role_changed', { id: row.id, email: row.email, organization_id: organizationId }, {
+          from: 'super_admin', to: 'admin', reason: 'super_admin_reassigned',
+        });
+      }
+    }
+    return demoted;
+  }
+
   // --- Parse body ----------------------------------------------------------
   let body: Record<string, unknown>;
   try {
@@ -270,9 +293,13 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      await audit('user_created', { id: undefined, email, organization_id: organizationId }, {
-        role: targetRole,
-      });
+      // Enforce a single super admin per organization.
+      if (targetRole === 'super_admin') {
+        await demoteOtherSuperAdmins(organizationId, newUserId);
+      }
+
+      await audit(targetRole === 'super_admin' ? 'super_admin_assigned' : 'user_created',
+        { id: undefined, email, organization_id: organizationId }, { role: targetRole });
 
       return json(200, { success: true, userId: newUserId, temporaryPassword });
     }
@@ -369,6 +396,51 @@ Deno.serve(async (req: Request) => {
 
       await audit(active ? 'user_activated' : 'user_disabled', target);
       return json(200, { success: true });
+    }
+
+    // =====================================================================
+    // ASSIGN SUPER ADMIN (platform admin only)
+    // =====================================================================
+    if (action === 'assign_super_admin') {
+      if (callerRole !== 'platform_admin') {
+        return json(403, { error: 'Only a Platform Admin can assign a Super Admin.' });
+      }
+
+      const organizationId = String(body.organization_id ?? '');
+      if (!organizationId) return json(400, { error: 'An organization is required.' });
+
+      const { data: org } = await admin
+        .from('organizations')
+        .select('id')
+        .eq('id', organizationId)
+        .maybeSingle();
+      if (!org) return json(404, { error: 'Organization not found.' });
+
+      // Resolve the target profile by profile_id or by auth user_id.
+      let targetQuery = admin.from('profiles').select('id, user_id, role, organization_id, email');
+      if (body.profile_id) targetQuery = targetQuery.eq('id', String(body.profile_id));
+      else if (body.user_id) targetQuery = targetQuery.eq('user_id', String(body.user_id));
+      else return json(400, { error: 'A target user is required.' });
+
+      const { data: target } = await targetQuery.maybeSingle();
+      if (!target) return json(404, { error: 'User not found.' });
+
+      // Demote the existing super admin(s) of this organization first.
+      const demoted = await demoteOtherSuperAdmins(organizationId, target.user_id);
+
+      // Promote the target and move them into the organization.
+      const { error: promoteErr } = await admin
+        .from('profiles')
+        .update({ role: 'super_admin', organization_id: organizationId })
+        .eq('id', target.id);
+      if (promoteErr) return json(400, { error: `Could not assign Super Admin: ${promoteErr.message}` });
+
+      await audit('super_admin_assigned', { id: target.id, email: target.email, organization_id: organizationId }, {
+        previous_role: target.role,
+        demoted,
+      });
+
+      return json(200, { success: true, demoted });
     }
 
     return json(400, { error: `Unknown action: ${action}` });

@@ -90,6 +90,115 @@ export async function setOrganizationActive(id: string, active: boolean): Promis
   await updateOrganization(id, { active });
 }
 
+// ── Organization roll-ups (platform admin) ───────────────────────────────────
+
+export interface OrgSuperAdmin {
+  id: string;
+  user_id: string | null;
+  full_name: string;
+  email: string;
+}
+
+/** Count of users per organization_id. */
+export async function fetchOrgUserCounts(): Promise<Record<string, number>> {
+  try {
+    const { data, error } = await supabase.from('profiles').select('organization_id').range(0, 49999);
+    if (error) return {};
+    const m: Record<string, number> = {};
+    (data ?? []).forEach(r => {
+      const id = (r as { organization_id: string | null }).organization_id;
+      if (id) m[id] = (m[id] ?? 0) + 1;
+    });
+    return m;
+  } catch { return {}; }
+}
+
+/** Count of active cases per organization_id. */
+export async function fetchOrgCaseCounts(): Promise<Record<string, number>> {
+  try {
+    const { data, error } = await supabase.from('cases').select('organization_id').eq('active', true).range(0, 49999);
+    if (error) return {};
+    const m: Record<string, number> = {};
+    (data ?? []).forEach(r => {
+      const id = (r as { organization_id: string | null }).organization_id;
+      if (id) m[id] = (m[id] ?? 0) + 1;
+    });
+    return m;
+  } catch { return {}; }
+}
+
+/** The current Super Admin for each organization (first match wins). */
+export async function fetchOrgSuperAdmins(): Promise<Record<string, OrgSuperAdmin>> {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, user_id, full_name, email, organization_id')
+      .eq('role', 'super_admin');
+    if (error) return {};
+    const m: Record<string, OrgSuperAdmin> = {};
+    (data ?? []).forEach(r => {
+      const row = r as OrgSuperAdmin & { organization_id: string | null };
+      if (row.organization_id && !m[row.organization_id]) {
+        m[row.organization_id] = { id: row.id, user_id: row.user_id, full_name: row.full_name, email: row.email };
+      }
+    });
+    return m;
+  } catch { return {}; }
+}
+
+// ── Notification recipients (per organization) ───────────────────────────────
+
+export interface NotificationRecipient {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  email: string | null;
+  mobile_number: string | null;
+  whatsapp_number: string | null;
+  notify_email: boolean;
+  notify_sms: boolean;
+  notify_whatsapp: boolean;
+  active: boolean;
+}
+
+export interface RecipientInput {
+  name: string;
+  email: string | null;
+  mobile_number: string | null;
+  whatsapp_number: string | null;
+  notify_email: boolean;
+  notify_sms: boolean;
+  notify_whatsapp: boolean;
+  active: boolean;
+}
+
+export async function fetchRecipients(orgId: string): Promise<NotificationRecipient[]> {
+  const { data, error } = await supabase
+    .from('system_notification_recipients')
+    .select('id, organization_id, name, email, mobile_number, whatsapp_number, notify_email, notify_sms, notify_whatsapp, active')
+    .eq('organization_id', orgId)
+    .order('name', { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as NotificationRecipient[];
+}
+
+export async function createRecipient(orgId: string, input: RecipientInput): Promise<void> {
+  const { error } = await supabase
+    .from('system_notification_recipients')
+    .insert({ ...input, organization_id: orgId });
+  if (error) throw new Error(error.message);
+}
+
+export async function updateRecipient(id: string, patch: Partial<RecipientInput>): Promise<void> {
+  const { error } = await supabase.from('system_notification_recipients').update(patch).eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteRecipient(id: string): Promise<void> {
+  const { error } = await supabase.from('system_notification_recipients').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
 // ── Pricing ───────────────────────────────────────────────────────────────────
 export async function fetchPricing(): Promise<EcourtsApiPricing[]> {
   try {

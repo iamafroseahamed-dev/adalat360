@@ -68,6 +68,11 @@ export async function fetchUsers(actorRole: Role | null | undefined, orgId: stri
   return (data ?? []) as unknown as AppUser[];
 }
 
+/** Org-scoped user list (always filtered to one organization). */
+export async function fetchUsersByOrg(orgId: string): Promise<AppUser[]> {
+  return fetchUsers('admin', orgId);
+}
+
 export interface CreateUserResult {
   userId: string;
   temporaryPassword: string;
@@ -162,6 +167,24 @@ export async function resetUserPassword(id: string): Promise<string> {
   return res.temporaryPassword;
 }
 
+/**
+ * Promote a user to Super Admin of an organization. The Edge Function demotes
+ * the current Super Admin (if any) to 'admin' and records the change in the
+ * audit log. Pass either an existing `profileId` or a freshly created `userId`.
+ */
+export async function assignSuperAdmin(args: {
+  organizationId: string;
+  profileId?: string;
+  userId?: string;
+}): Promise<{ demoted: string[] }> {
+  return invokeAdmin<{ demoted: string[] }>({
+    action: 'assign_super_admin',
+    organization_id: args.organizationId,
+    profile_id: args.profileId,
+    user_id: args.userId,
+  });
+}
+
 // ── Audit log ─────────────────────────────────────────────────────────────────
 
 export interface AuditLogEntry {
@@ -249,8 +272,7 @@ interface AdvocateCaseRow {
   assigned_on: string | null;
 }
 
-export async function fetchAdvocates(actorRole: Role | null | undefined, orgId: string | null): Promise<AdvocateSummary[]> {
-  let query = supabase
+export async function fetchAdvocates(actorRole: Role | null | undefined, orgId: string | null): Promise<AdvocateSummary[]> {  let query = supabase
     .from('cases')
     .select(
       'assigned_advocate_name, assigned_advocate_email, assigned_advocate_mobile, ' +
@@ -312,4 +334,9 @@ export async function fetchAdvocates(actorRole: Role | null | undefined, orgId: 
   }
 
   return Array.from(byAdvocate.values()).sort((a, b) => b.assignedCases - a.assignedCases);
+}
+
+/** Org-scoped advocate list (always filtered to one organization). */
+export async function fetchAdvocatesByOrg(orgId: string): Promise<AdvocateSummary[]> {
+  return fetchAdvocates('admin', orgId);
 }
