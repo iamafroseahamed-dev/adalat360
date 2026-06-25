@@ -1,25 +1,37 @@
 /**
- * Administration.tsx — Enterprise User Management module.
+ * Administration.tsx — Enterprise Administration console.
  *
- * Replaces the old "Notification Recipients" settings page. Notifications are now
- * driven from each user's profile preferences. Visibility of tabs and actions is
- * permission-gated (see lib/roles.ts); the real boundary is RLS (migration 017).
+ * Central place to manage an organisation: Dashboard, Users, Advocates, Roles &
+ * Permissions, Notification Settings, Organization Settings, API Credits, Billing
+ * (platform admin) and Audit Logs (future). Visibility of every module and action
+ * is permission-gated (see lib/roles.ts); the real boundary is RLS (migrations
+ * 017 & 018). The console uses a left sub-navigation, like a modern admin portal.
  */
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth';
 import { useOrg } from '@/lib/orgContext';
-import { fetchOrganizations } from '@/lib/organizations';
+import {
+  fetchOrganizations, fetchUsageForOrg, fetchPricing, summarizeUsage,
+  type OrgUsageSummary,
+} from '@/lib/organizations';
 import {
   fetchUsers, createUser, updateUser, setUserActive, deleteUser,
-  fetchAdvocates, type AppUser, type UserInput, type AdvocateSummary,
+  fetchAdvocates, updateMyNotificationPreferences,
+  type AppUser, type UserInput, type AdvocateSummary, type NotificationPrefs,
 } from '@/lib/userManagement';
 import {
   ROLE_LABELS, ROLE_DESCRIPTIONS, ROLE_BADGE_VARIANT, normalizeRole, assignableRoles,
   canManageUsers, canDeleteUsers, canChangeOrganization, canViewPlatformTools,
-  canAccessUserManagement, isPlatformAdmin,
+  canAccessAdministration, canConfigureRoles, canManageOrgSettings,
+  canManageCredits, canManageBilling, isPlatformAdmin,
 } from '@/lib/roles';
+import {
+  PERMISSION_CATEGORIES, PERMISSION_LABELS, PERMISSION_DESCRIPTIONS, MATRIX_ROLES,
+  fetchPermissionMatrix, savePermissionMatrix, cloneDefaultMatrix,
+  type PermissionMatrix, type PermissionCategory, type ManagedRole,
+} from '@/lib/permissions';
 import type { Organization, Role } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,7 +39,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -40,7 +51,8 @@ import {
 import { EmptyState } from '@/components/ui/empty-state';
 import {
   Users, Scale, Building2, Search, Plus, Edit2, Trash2, ShieldCheck, CreditCard,
-  BarChart3, Mail, Loader2, ShieldAlert, ArrowRight,
+  BarChart3, Mail, Loader2, ShieldAlert, ArrowRight, LayoutDashboard, SlidersHorizontal,
+  Bell, History, Wallet, Check, X, RefreshCw, TrendingUp, Activity, ChevronRight,
 } from 'lucide-react';
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
