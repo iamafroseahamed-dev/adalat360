@@ -242,6 +242,7 @@ export interface ExecutiveAnalytics {
   districts: DistrictLitigation[];
   districtDetails: Record<string, DistrictDetail>;
   sections: CategoryCount[];
+  caseTypes: CategoryCount[];
   sectionAdvocates: SectionAdvocateRow[];
   advocates: AdvocatePerformance[];
   leaderboard: AdvocatePerformance[];
@@ -261,6 +262,7 @@ interface CaseRow {
   district: string | null;
   section: string | null;
   case_status: string | null;
+  case_type: string | null;
   advocate_status: string | null;
   next_hearing_date: string | null;
   assigned_advocate_name: string | null;
@@ -313,7 +315,7 @@ function orgOrLegacyFilter(orgId?: string | null): string | null {
 
 export async function fetchExecutiveAnalytics(orgId?: string | null): Promise<ExecutiveAnalytics> {
   let casesQuery = supabase.from('cases')
-    .select('id, case_number, district, section, case_status, advocate_status, next_hearing_date, assigned_advocate_name, sensitivity, cla_party_status, created_at, updated_at, organization_id')
+    .select('id, case_number, district, section, case_status, case_type, advocate_status, next_hearing_date, assigned_advocate_name, sensitivity, cla_party_status, created_at, updated_at, organization_id')
     .range(0, PAGE);
   const scopedFilter = orgOrLegacyFilter(orgId);
   if (scopedFilter) casesQuery = casesQuery.or(scopedFilter);

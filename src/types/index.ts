@@ -75,6 +75,7 @@ export interface Case {
   cla_party_status: string | null;
   sensitivity: string | null;
   case_status: string | null;
+  case_type: string | null;
   nature_of_disposal: string | null;
   last_hearing_date: string | null;
   last_hearing_update: string | null;
