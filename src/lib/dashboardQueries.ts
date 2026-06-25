@@ -131,6 +131,37 @@ export interface ExecKpis {
   documentsAwaited: number;
   legalOpinionPending: number;
   compliancePending: number;
+  connectedCases: number;
+  assignedAdvocates: number;
+  todaysCauseListMatches: number;
+  apiCallsToday: number;
+  apiCreditsRemaining: number;
+}
+
+export interface DashboardFilters {
+  district?: string;
+  court?: string;
+  caseType?: string;
+  caseStatus?: string;
+  advocate?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface ApiDailyUsage {
+  date: string;
+  calls: number;
+}
+
+export interface OrgCaseBreakdown {
+  organizationId: string;
+  label: string;
+  cases: number;
+}
+
+export interface TaskProgress {
+  open: number;
+  completed: number;
 }
 
 export interface DistrictLitigation {
@@ -255,11 +286,24 @@ export interface ExecutiveAnalytics {
   trend: TrendPoint[];
   advocateStatusDistribution: CategoryCount[];
   aiCases: AiCaseSnapshot[];
+  courts: CategoryCount[];
+  taskProgress: TaskProgress;
+  apiDailyCalls: ApiDailyUsage[];
+  orgCases: OrgCaseBreakdown[];
+  filterMeta: {
+    districts: string[];
+    courts: string[];
+    caseTypes: string[];
+    statuses: string[];
+    advocates: string[];
+  };
 }
 
 interface CaseRow {
   id: string;
+  organization_id: string | null;
   case_number: string | null;
+  court_name: string | null;
   district: string | null;
   section: string | null;
   case_status: string | null;
@@ -314,14 +358,14 @@ function orgOrLegacyFilter(orgId?: string | null): string | null {
   return `organization_id.eq.${orgId},organization_id.is.null`;
 }
 
-export async function fetchExecutiveAnalytics(orgId?: string | null): Promise<ExecutiveAnalytics> {
+export async function fetchExecutiveAnalytics(orgId?: string | null, filters?: DashboardFilters): Promise<ExecutiveAnalytics> {
   let casesQuery = supabase.from('cases')
-    .select('id, case_number, district, section, case_status, case_type, advocate_status, next_hearing_date, assigned_advocate_name, sensitivity, cla_party_status, created_at, updated_at, organization_id')
+    .select('id, organization_id, case_number, court_name, district, section, case_status, case_type, advocate_status, next_hearing_date, assigned_advocate_name, sensitivity, cla_party_status, created_at, updated_at')
     .range(0, PAGE);
   const scopedFilter = orgOrLegacyFilter(orgId);
   if (scopedFilter) casesQuery = casesQuery.or(scopedFilter);
 
-  const [casesRes, listingsRes, connRes] = await Promise.all([
+  const [casesRes, listingsRes, connRes, usageRes] = await Promise.all([
     casesQuery,
     (() => {
       let q = supabase.from('today_matched_listings')
@@ -331,15 +375,47 @@ export async function fetchExecutiveAnalytics(orgId?: string | null): Promise<Ex
       return q;
     })(),
     supabase.from('case_connections').select('parent_case_id, connected_case_id').range(0, PAGE),
+    (() => {
+      let q = supabase.from('ecourts_api_usage').select('created_at, organization_id').range(0, PAGE);
+      if (scopedFilter) q = q.or(scopedFilter);
+      return q;
+    })(),
   ]);
 
-  const cases = (casesRes.data ?? []) as CaseRow[];
-  const listings = (listingsRes.data ?? []) as ListingRow[];
+  const rawCases = (casesRes.data ?? []) as CaseRow[];
+  const rawListings = (listingsRes.data ?? []) as ListingRow[];
+  const usageRows = (usageRes.data ?? []) as Array<{ created_at: string | null; organization_id: string | null }>;
+
+  const inDateRange = (iso: string | null | undefined) => {
+    const d = String(iso ?? '').slice(0, 10);
+    if (!d) return true;
+    if (filters?.dateFrom && d < filters.dateFrom) return false;
+    if (filters?.dateTo && d > filters.dateTo) return false;
+    return true;
+  };
+
+  const cases = rawCases.filter(c => {
+    const cType = (c.case_type ?? '').trim() || deriveCaseType(c.case_number) || '';
+    return (!filters?.district || (c.district ?? '') === filters.district)
+      && (!filters?.court || (c.court_name ?? '') === filters.court)
+      && (!filters?.caseType || cType === filters.caseType)
+      && (!filters?.caseStatus || (c.case_status ?? '') === filters.caseStatus)
+      && (!filters?.advocate || (c.assigned_advocate_name ?? '') === filters.advocate)
+      && inDateRange(c.created_at);
+  });
+  const caseIds = new Set(cases.map(c => c.id));
+  const listings = rawListings.filter(l => inDateRange(l.listed_date));
+
+  const filterMeta = {
+    districts: Array.from(new Set(rawCases.map(c => (c.district ?? '').trim()).filter(Boolean))).sort(),
+    courts: Array.from(new Set(rawCases.map(c => (c.court_name ?? '').trim()).filter(Boolean))).sort(),
+    caseTypes: Array.from(new Set(rawCases.map(c => ((c.case_type ?? '').trim() || deriveCaseType(c.case_number) || '').trim()).filter(Boolean))).sort(),
+    statuses: Array.from(new Set(rawCases.map(c => (c.case_status ?? '').trim()).filter(Boolean))).sort(),
+    advocates: Array.from(new Set(rawCases.map(c => (c.assigned_advocate_name ?? '').trim()).filter(Boolean))).sort(),
+  };
   if (import.meta.env.DEV) {
     console.log('[Dashboard] executive-analytics', { orgId: orgId ?? null, scoped: !!scopedFilter, cases: cases.length, listings: listings.length });
   }
-  const caseIds = new Set(cases.map(c => c.id));
-
   const tasks = caseIds.size === 0
     ? []
     : ((await supabase.from('case_tasks')
@@ -403,7 +479,17 @@ export async function fetchExecutiveAnalytics(orgId?: string | null): Promise<Ex
     documentsAwaited: cases.filter(isDocumentsAwaited).length,
     legalOpinionPending: cases.filter(isLegalOpinionPending).length,
     compliancePending: cases.filter(isCompliancePending).length,
+    connectedCases: connectedTotal,
+    assignedAdvocates: new Set(cases.map(c => (c.assigned_advocate_name ?? '').trim()).filter(Boolean)).size,
+    todaysCauseListMatches: listings.filter(l => String(l.listed_date ?? '').slice(0, 10) === today).length,
+    apiCallsToday: usageRows.filter(r => String(r.created_at ?? '').slice(0, 10) === today).length,
+    apiCreditsRemaining: 0,
   };
+
+  if (orgId) {
+    const orgRes = await supabase.from('organizations').select('available_credits').eq('id', orgId).maybeSingle();
+    kpis.apiCreditsRemaining = Number(orgRes.data?.available_credits ?? 0);
+  }
 
   // ── Task lookups keyed by case ──
   const openTasksByCase = new Map<string, number>();
@@ -521,6 +607,13 @@ export async function fetchExecutiveAnalytics(orgId?: string | null): Promise<Ex
   });
   const districts = Array.from(districtMap.values()).sort((a, b) => b.total - a.total);
 
+  const courtMap = new Map<string, number>();
+  for (const c of cases) {
+    const key = (c.court_name ?? '').trim() || 'Unspecified';
+    courtMap.set(key, (courtMap.get(key) ?? 0) + 1);
+  }
+  const courts = Array.from(courtMap.entries()).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+
   // ── Sections ──
   const sectionMap = new Map<string, number>();
   for (const c of cases) {
@@ -614,6 +707,10 @@ export async function fetchExecutiveAnalytics(orgId?: string | null): Promise<Ex
       totalTasks: a.total,
     }))
     .sort((x, y) => (y.openTasks + y.overdueTasks) - (x.openTasks + x.overdueTasks) || y.totalTasks - x.totalTasks);
+  const taskProgress: TaskProgress = {
+    open: tasks.filter(t => (t.task_status ?? '').toLowerCase() !== 'completed').length,
+    completed: tasks.filter(t => (t.task_status ?? '').toLowerCase() === 'completed').length,
+  };
 
   // ── Section → Advocate matrix (CASE-level: section + assigned advocate) ──
   const saMap = new Map<string, SectionAdvocateRow>();
@@ -723,6 +820,26 @@ export async function fetchExecutiveAnalytics(orgId?: string | null): Promise<Ex
   }
   const trend = months.map(m => trendMap.get(m)!);
 
+  const apiDailyMap = new Map<string, number>();
+  for (let i = 29; i >= 0; i--) {
+    const d = localIso(addDays(now, -i));
+    apiDailyMap.set(d, 0);
+  }
+  usageRows.forEach(r => {
+    const d = String(r.created_at ?? '').slice(0, 10);
+    if (apiDailyMap.has(d)) apiDailyMap.set(d, (apiDailyMap.get(d) ?? 0) + 1);
+  });
+  const apiDailyCalls: ApiDailyUsage[] = Array.from(apiDailyMap.entries()).map(([date, calls]) => ({ date, calls }));
+
+  const orgCases: OrgCaseBreakdown[] = Array.from(rawCases.reduce((m, c) => {
+    const key = c.organization_id ?? 'legacy';
+    m.set(key, (m.get(key) ?? 0) + 1);
+    return m;
+  }, new Map<string, number>()).entries())
+    .map(([organizationId, casesCount]) => ({ organizationId, label: organizationId === 'legacy' ? 'Legacy/Unassigned' : organizationId, cases: casesCount }))
+    .sort((a, b) => b.cases - a.cases)
+    .slice(0, 12);
+
   const aiCases: AiCaseSnapshot[] = aiRows.map(row => {
     const c = caseById.get(row.case_id);
     const ai = (row.ai_json ?? {}) as Record<string, unknown>;
@@ -763,6 +880,11 @@ export async function fetchExecutiveAnalytics(orgId?: string | null): Promise<Ex
     trend,
     advocateStatusDistribution,
     aiCases,
+    courts,
+    taskProgress,
+    apiDailyCalls,
+    orgCases,
+    filterMeta,
   };
 }
 
