@@ -63,6 +63,7 @@ function Sidebar({
   const { user, logout } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const navGroups = navGroupsForRole(user?.profile?.role);
 
   return (
     <>
@@ -106,7 +107,7 @@ function Sidebar({
 
         {/* Nav */}
         <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
-          {NAV_GROUPS.map((group) => (
+          {navGroups.map((group) => (
             <div key={group.heading} className="space-y-1">
               {!collapsed && (
                 <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/40">
