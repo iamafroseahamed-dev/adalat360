@@ -267,7 +267,15 @@ function UserFormDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Email <span className="text-destructive">*</span></Label>
-              <Input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="name@department.gov.in" />
+              <Input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="name@department.gov.in" disabled={mode === 'edit'} />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Mobile Number <span className="text-[11px] font-normal text-muted-foreground">(optional)</span></Label>
+            <div className="relative">
+              <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input className="pl-9" value={form.mobile} onChange={e => set('mobile', e.target.value)} placeholder="+91 98765 43210" />
             </div>
           </div>
 
