@@ -15,6 +15,7 @@ import { CaseConnectionsTab } from '@/components/CaseConnectionsTab';
 import { EcourtsHistoryTab } from '@/components/EcourtsHistoryTab';
 import { AiInsightsTab } from '@/components/AiInsightsTab';
 import { getEcourtsCaseType } from '@/config/ecourtsCaseTypes';
+import { deriveCaseType } from '@/lib/caseType';
 import { supabase } from '@/lib/supabase';
 import { advocateStatusClasses } from '@/lib/caseManagement';
 import {
@@ -798,6 +799,7 @@ export function CaseDetailsModal({
             {/* Basic Information */}
             <InfoCard title="Basic Information">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
+                <Detail label="Case Type" value={val(deriveCaseType(caseNumber ?? ''))} />
                 <Detail label="Registration Number" value={val(caseData.registrationNumber)} />
                 <Detail label="Registration Date" value={fmtDate(caseData.registrationDate)} />
                 <Detail label="Filing Number" value={val(caseData.filingNumber)} />
