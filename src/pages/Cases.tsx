@@ -766,12 +766,12 @@ export default function CasesPage() {
   return (
     <div className="space-y-4">
       {!orgId && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-800">
+        <div className="rounded-xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
           No organization assigned to your account.
         </div>
       )}
       {orgId && unassignedCount > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <span>{unassignedCount} case{unassignedCount !== 1 ? 's are' : ' is'} not yet assigned to an organization (still shown below).</span>
           {isAdmin && (
             <Button size="sm" variant="outline" className="h-8" disabled={bulkAssigning} onClick={bulkAssignUnassigned}>
@@ -780,7 +780,7 @@ export default function CasesPage() {
           )}
         </div>
       )}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-white p-3 shadow-card sm:flex-row sm:items-center sm:justify-between">
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <div className="relative flex-1 sm:max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />

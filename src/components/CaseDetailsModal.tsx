@@ -243,6 +243,12 @@ function num(value: number | null | undefined) {
   return typeof value === 'number' ? value : 0;
 }
 
+const EMPTY_VALUE_TOKENS = new Set(['', '\u2014', '-', 'null', 'undefined', 'n/a', 'na', 'none']);
+function isEmptyValue(value: string | null | undefined): boolean {
+  if (value === null || value === undefined) return true;
+  return EMPTY_VALUE_TOKENS.has(String(value).trim().toLowerCase());
+}
+
 // Trimmed string or null (for nullable text columns)
 function strOrNull(value: string | number | null | undefined): string | null {
   if (value === null || value === undefined) return null;
@@ -274,21 +280,35 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function InfoCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-0.5">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium text-foreground">{value}</dd>
+    <Card className="transition-shadow duration-200 hover:shadow-card-hover">
+      <CardContent className="p-4 sm:p-5">
+        <SectionTitle>{title}</SectionTitle>
+        {children}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  const empty = isEmptyValue(value);
+  return (
+    <div className="space-y-1">
+      <dt className="text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground">{label}</dt>
+      <dd className={empty ? 'text-sm italic text-muted-foreground/60' : 'text-[0.9375rem] font-semibold leading-snug text-foreground'}>
+        {empty ? 'Not available' : value}
+      </dd>
     </div>
   );
 }
 
 function PartyList({ items }: { items: Array<string | number> | null | undefined }) {
-  if (!items || items.length === 0) return <p className="text-sm text-muted-foreground">\u2014</p>;
+  if (!items || items.length === 0) return <p className="text-sm italic text-muted-foreground/60">No information available</p>;
   return (
     <ul className="space-y-1">
       {items.map((item, i) => (
-        <li key={`${String(item)}-${i}`} className="text-sm font-medium">{String(item)}</li>
+        <li key={`${String(item)}-${i}`} className="text-[0.9375rem] font-medium text-foreground">{String(item)}</li>
       ))}
     </ul>
   );
@@ -622,22 +642,22 @@ export function CaseDetailsModal({
         if (!o) { setCaseData(null); setError(null); setSource(null); }
       }}
     >
-      <DialogContent className="flex max-h-[92vh] max-w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-w-[1200px]">
-        {/* ── Fixed workspace header ── */}
-        <div className="shrink-0 border-b border-border/70 bg-gradient-to-br from-slate-50 to-white px-4 py-4 sm:px-6">
+      <DialogContent className="flex h-[90vh] max-h-[90vh] w-[95vw] max-w-[90vw] flex-col overflow-hidden p-0 sm:max-w-[1100px]">
+        {/* ── Fixed workspace header (z-30) ── */}
+        <div className="relative z-30 shrink-0 border-b border-border/70 bg-gradient-to-br from-slate-50 to-white px-4 py-4 sm:px-6">
           <DialogHeader>
             <DialogTitle className="flex flex-wrap items-center gap-2.5 pr-8">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Scale className="h-[1.1rem] w-[1.1rem]" />
               </span>
-              <span className="font-mono text-base">{val(caseData?.registrationNumber) === '\u2014' ? caseNumber : caseData?.registrationNumber}</span>
+              <span className="font-mono text-lg font-bold tracking-tight sm:text-2xl">{val(caseData?.registrationNumber) === '\u2014' ? caseNumber : caseData?.registrationNumber}</span>
               {caseData?.caseStatus && (
                 <Badge variant={String(caseData.caseStatus).toLowerCase() === 'pending' ? 'warning' : 'secondary'}>
                   {caseData.caseStatus}
                 </Badge>
               )}
               {caseData?.courtName && (
-                <span className="text-sm font-normal text-muted-foreground">{caseData.courtName}</span>
+                <span className="text-[15px] font-medium text-muted-foreground">{caseData.courtName}</span>
               )}
               {import.meta.env.DEV && source && (
                 <Badge variant="info" className="text-[10px]">Source: {source}</Badge>
@@ -693,43 +713,45 @@ export function CaseDetailsModal({
           )}
         </div>
 
-        {/* ── Scrollable workspace body ── */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="sticky top-0 z-10 mb-4 flex w-full justify-start gap-1 overflow-x-auto">
-            <TabsTrigger value="overview">Case Information</TabsTrigger>
-            <TabsTrigger value="ecourts">Hearing History</TabsTrigger>
-            <TabsTrigger value="history">Case History</TabsTrigger>
-            <TabsTrigger value="ai" className="gap-1.5 data-[state=active]:text-indigo-700">
-              <Sparkles className="h-3.5 w-3.5" />
-              AI Insights
-            </TabsTrigger>
-            <TabsTrigger value="notes">Notes</TabsTrigger>
-            <TabsTrigger value="tasks">Tasks</TabsTrigger>
-            <TabsTrigger value="connected">Connected Cases</TabsTrigger>
-          </TabsList>
+        {/* ── Sticky tab bar (z-20) + scrollable body — flex siblings, no overlap ── */}
+        <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
+          <div className="relative z-20 shrink-0 border-b border-border/70 bg-background px-4 py-2.5 sm:px-6">
+            <TabsList className="flex w-full justify-start gap-1 overflow-x-auto">
+              <TabsTrigger value="overview">Case Information</TabsTrigger>
+              <TabsTrigger value="ecourts">Hearing History</TabsTrigger>
+              <TabsTrigger value="history">Case History</TabsTrigger>
+              <TabsTrigger value="ai" className="gap-1.5">
+                <Sparkles className="h-3.5 w-3.5" />
+                AI Insights
+              </TabsTrigger>
+              <TabsTrigger value="notes">Notes</TabsTrigger>
+              <TabsTrigger value="tasks">Tasks</TabsTrigger>
+              <TabsTrigger value="connected">Connected Cases</TabsTrigger>
+            </TabsList>
+          </div>
 
-          <TabsContent value="overview" className="space-y-6">
+          <div className="flex-1 overflow-y-auto scroll-smooth px-4 py-5 sm:px-6">
+          <TabsContent value="overview" className="mt-0 space-y-6">
         {/* CLA Internal Status — always shown (independent of eCourts data) */}
         {internal && (
-          <section className="space-y-4">
-            <SectionTitle>Status</SectionTitle>
+          <InfoCard title="Status">
+           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="rounded-md border bg-muted/20 px-3 py-2.5">
-                <p className="text-xs text-muted-foreground">Court Status</p>
-                <p className="mt-1">
+              <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
+                <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground">Court Status</p>
+                <p className="mt-1.5">
                   {internal.courtStatus
                     ? <Badge variant={String(internal.courtStatus).toLowerCase() === 'pending' ? 'warning' : 'secondary'}>{internal.courtStatus}</Badge>
-                    : <span className="text-sm text-muted-foreground">{'\u2014'}</span>}
+                    : <span className="text-sm italic text-muted-foreground/60">Not available</span>}
                 </p>
                 <p className="mt-1.5 text-[10px] text-muted-foreground">From court systems (eCourts / MHC)</p>
               </div>
-              <div className="rounded-md border bg-muted/20 px-3 py-2.5">
-                <p className="text-xs text-muted-foreground">Advocate Status</p>
-                <p className="mt-1">
+              <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
+                <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground">Advocate Status</p>
+                <p className="mt-1.5">
                   {internal.advocateStatus
                     ? <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${advocateStatusClasses(internal.advocateStatus)}`}>{internal.advocateStatus}</span>
-                    : <span className="text-sm text-muted-foreground">{'\u2014'}</span>}
+                    : <span className="text-sm italic text-muted-foreground/60">Not available</span>}
                 </p>
                 <p className="mt-1.5 text-[10px] text-muted-foreground">Internal CLA / advocate progress</p>
               </div>
@@ -737,7 +759,7 @@ export function CaseDetailsModal({
 
             {statusHistory.length > 0 && (
               <div>
-                <p className="mb-2 text-xs font-medium text-muted-foreground">Advocate Status Timeline</p>
+                <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground">Advocate Status Timeline</p>
                 <ol className="relative space-y-3 border-l border-muted pl-4">
                   {statusHistory.map(h => (
                     <li key={h.id} className="relative">
@@ -745,7 +767,7 @@ export function CaseDetailsModal({
                       <p className="text-xs font-semibold text-muted-foreground">{fmtDate(h.changed_at)}</p>
                       <p className="text-sm font-medium">
                         {h.old_status ? <span className="text-muted-foreground">{h.old_status}{' \u2192 '}</span> : null}
-                        {h.new_status ?? '\u2014'}
+                        {h.new_status ?? 'Not available'}
                       </p>
                       {h.remarks && <p className="text-xs text-muted-foreground">{h.remarks}</p>}
                       {h.changed_by && <p className="text-[11px] text-muted-foreground">by {h.changed_by}</p>}
@@ -754,7 +776,8 @@ export function CaseDetailsModal({
                 </ol>
               </div>
             )}
-          </section>
+           </div>
+          </InfoCard>
         )}
 
         {(loadingApi || loadingCached) && (
@@ -771,10 +794,9 @@ export function CaseDetailsModal({
         )}
 
         {!loadingApi && !loadingCached && !error && caseData && (
-          <div className="space-y-6">
+          <div className="space-y-4">
             {/* Basic Information */}
-            <section>
-              <SectionTitle>Basic Information</SectionTitle>
+            <InfoCard title="Basic Information">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
                 <Detail label="Registration Number" value={val(caseData.registrationNumber)} />
                 <Detail label="Registration Date" value={fmtDate(caseData.registrationDate)} />
@@ -787,51 +809,47 @@ export function CaseDetailsModal({
                 <Detail label="Case Category" value={val(caseData.caseCategory)} />
                 <Detail label="Bench Type" value={val(caseData.benchType)} />
               </dl>
-            </section>
+            </InfoCard>
 
             {/* Parties */}
-            <section>
-              <SectionTitle>Parties</SectionTitle>
+            <InfoCard title="Parties">
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
-                  <p className="mb-1 text-xs text-muted-foreground">Petitioners</p>
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground">Petitioners</p>
                   <PartyList items={caseData.petitioners} />
                 </div>
                 <div>
-                  <p className="mb-1 text-xs text-muted-foreground">Petitioner Advocates</p>
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground">Petitioner Advocates</p>
                   <PartyList items={caseData.petitionerAdvocates} />
                 </div>
                 <div>
-                  <p className="mb-1 text-xs text-muted-foreground">Respondents</p>
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground">Respondents</p>
                   <PartyList items={caseData.respondents} />
                 </div>
                 <div>
-                  <p className="mb-1 text-xs text-muted-foreground">Respondent Advocates</p>
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground">Respondent Advocates</p>
                   <PartyList items={caseData.respondentAdvocates} />
                 </div>
               </div>
-            </section>
+            </InfoCard>
 
             {/* Judge Information */}
-            <section>
-              <SectionTitle>Judge Information</SectionTitle>
+            <InfoCard title="Judge Information">
               <PartyList items={caseData.judges} />
-            </section>
+            </InfoCard>
 
             {/* Hearing Information */}
-            <section>
-              <SectionTitle>Hearing Information</SectionTitle>
+            <InfoCard title="Hearing Information">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
                 <Detail label="First Hearing Date" value={fmtDate(caseData.firstHearingDate)} />
                 <Detail label="Last Hearing Date" value={fmtDate(caseData.lastHearingDate)} />
                 <Detail label="Next Hearing Date" value={fmtDate(caseData.nextHearingDate)} />
                 <Detail label="Hearing Count" value={String(num(caseData.hearingCount))} />
               </dl>
-            </section>
+            </InfoCard>
 
             {/* Statistics */}
-            <section>
-              <SectionTitle>Statistics</SectionTitle>
+            <InfoCard title="Statistics">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                 <StatCard label="Hearing Count" value={num(caseData.hearingCount)} />
                 <StatCard label="Order Count" value={num(caseData.orderCount)} />
@@ -839,18 +857,17 @@ export function CaseDetailsModal({
                 <StatCard label="Judgment Count" value={num(caseData.judgmentCount)} />
                 <StatCard label="IA Count" value={num(caseData.iaCount)} />
               </div>
-            </section>
+            </InfoCard>
 
             {/* Court Information */}
-            <section>
-              <SectionTitle>Court Information</SectionTitle>
+            <InfoCard title="Court Information">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
                 <Detail label="Court Code" value={val(caseData.courtCode)} />
                 <Detail label="Court Name" value={val(caseData.courtName)} />
                 <Detail label="State Code" value={val(caseData.stateCode)} />
                 <Detail label="District Code" value={val(caseData.districtCode)} />
               </dl>
-            </section>
+            </InfoCard>
           </div>
         )}
           </TabsContent>
@@ -893,8 +910,8 @@ export function CaseDetailsModal({
           <TabsContent value="ai">
             <AiInsightsTab caseId={caseId} caseNumber={caseNumber} caseData={caseData} />
           </TabsContent>
+          </div>
         </Tabs>
-        </div>
       </DialogContent>
 
       {viewCase && (

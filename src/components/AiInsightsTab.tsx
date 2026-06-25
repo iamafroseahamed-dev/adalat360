@@ -646,7 +646,7 @@ function TextRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm leading-relaxed text-foreground/90">{value || '\u2014'}</p>
+      <p className="mt-1 text-sm leading-relaxed text-foreground/90">{value?.trim() ? value : 'Not available'}</p>
     </div>
   );
 }
@@ -678,7 +678,7 @@ function RiskCard({ level, rationale, flags }: {
             ))}
           </div>
         </div>
-        <p className="text-sm leading-relaxed text-foreground/90">{rationale || '\u2014'}</p>
+        <p className="text-sm leading-relaxed text-foreground/90">{rationale?.trim() ? rationale : 'Not available'}</p>
         <div className="flex flex-wrap gap-2 pt-1 text-xs">
           {flags.attention && <Badge variant="destructive">Immediate Attention</Badge>}
           {flags.noActivity && <Badge variant="warning">No Activity</Badge>}
@@ -691,7 +691,7 @@ function RiskCard({ level, rationale, flags }: {
 }
 
 function BulletList({ items }: { items: string[] }) {
-  if (items.length === 0) return <p className="text-sm text-muted-foreground">\u2014</p>;
+  if (items.length === 0) return <p className="text-sm italic text-muted-foreground/60">No information available</p>;
   return (
     <ul className="space-y-2">
       {items.map((item, idx) => (
