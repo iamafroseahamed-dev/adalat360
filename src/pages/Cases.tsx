@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -445,6 +446,7 @@ interface MhcOrderDetails {
 }
 
 export default function CasesPage() {
+  const queryClient = useQueryClient();
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -722,6 +724,7 @@ export default function CasesPage() {
 
       setDialogMode(null);
       await Promise.all([load(), loadTaskCounts(), loadConnCounts()]);
+      await queryClient.invalidateQueries({ queryKey: ['executive-analytics'] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : (err as { message?: string }).message ?? 'Failed to save');
     } finally {
@@ -738,6 +741,7 @@ export default function CasesPage() {
     toast.success('Case deactivated');
     setDeactivateTarget(null);
     await load();
+    await queryClient.invalidateQueries({ queryKey: ['executive-analytics'] });
   };
 
   // ── Fetch MHC order (via server-side proxy) ──────────────────────────────────

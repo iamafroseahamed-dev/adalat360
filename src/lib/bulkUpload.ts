@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 import { addConnection } from '@/lib/connections';
+import { deriveCaseType } from '@/lib/caseType';
 
 export type ExistingMode = 'update' | 'skip';
 
@@ -43,6 +44,7 @@ export type SheetName = 'Cases' | 'Connected Cases' | 'Tasks' | 'Advocates' | 'N
 export interface CaseSheetRow {
   rowNo: number;
   case_number: string;
+  case_type: string | null;
   cnr_number: string | null;
   court_name: string | null;
   district: string | null;
@@ -162,6 +164,7 @@ export function buildTemplateWorkbook(): XLSX.WorkBook {
   const casesRows = [
     {
       case_number: 'WP/1234/2026',
+      case_type: 'Writ Petition',
       cnr_number: 'TNHC0012342026',
       court_name: 'Principal Bench of Madras High Court',
       district: 'Chennai',
@@ -254,6 +257,7 @@ export function parseWorkbook(file: File): Promise<BulkPreview> {
         const cases = readSheetRows(wb, 'Cases').map((r, i): CaseSheetRow => ({
           rowNo: i + 2,
           case_number: clean(r.case_number),
+          case_type: asNullable(r.case_type),
           cnr_number: asNullable(r.cnr_number),
           court_name: asNullable(r.court_name),
           district: asNullable(r.district),
@@ -575,6 +579,7 @@ export async function runBulkImport(args: {
       const payload: Record<string, unknown> = {
         organization_id: orgId,
         case_number: row.case_number,
+        case_type: row.case_type || deriveCaseType(row.case_number),
         cnr_number: row.cnr_number,
         court_name: row.court_name ?? 'Principal Bench of Madras High Court',
         district: row.district,

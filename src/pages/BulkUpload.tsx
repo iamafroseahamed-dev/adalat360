@@ -112,6 +112,7 @@ export default function BulkUploadPage() {
       });
       setResult(importResult);
       await qc.invalidateQueries({ queryKey: ['bulk-upload-history', orgId] });
+      await qc.invalidateQueries({ queryKey: ['executive-analytics'] });
       if (importResult.errors.length > 0) {
         toast.warning('Import completed with errors. Download the error report for details.');
       } else {

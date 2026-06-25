@@ -540,6 +540,7 @@ export function CaseDetailsModal({
       // view and make it "disappear" from the table.
       const update: Record<string, unknown> = {
         case_status: strOrNull(cd.caseStatus),
+        case_type: deriveCaseType(key),
         cnr_number: strOrNull(cd.cnr),
         section: strOrNull(cd.judicialSection),
         petitioner: joinList(cd.petitioners),
