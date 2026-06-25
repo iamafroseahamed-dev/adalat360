@@ -106,6 +106,25 @@ export async function deleteUser(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+// ── Notification preferences (current user, self-service) ─────────────────────
+
+export interface NotificationPrefs {
+  email_notifications: boolean;
+  notify_hearing_reminder: boolean;
+  notify_task_assignment: boolean;
+  notify_daily_cause_list: boolean;
+  notify_case_assignment: boolean;
+}
+
+/**
+ * Update the signed-in user's own notification preferences. RLS allows a user to
+ * update their own profile row (see migration 017 profiles_update policy).
+ */
+export async function updateMyNotificationPreferences(userId: string, prefs: NotificationPrefs): Promise<void> {
+  const { error } = await supabase.from('profiles').update(prefs).eq('user_id', userId);
+  if (error) throw new Error(error.message);
+}
+
 // ── Advocates module ──────────────────────────────────────────────────────────
 // Advocates are derived from the cases they are assigned to, with live metrics.
 // Every advocate belongs to one organisation (the org of their cases).

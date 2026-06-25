@@ -63,15 +63,27 @@ export function isSuperAdmin(role: Role | null | undefined): boolean {
   return role === 'super_admin';
 }
 
-/** advocate / viewer cannot reach the User Management module at all. */
-export function canAccessUserManagement(role: Role | null | undefined): boolean {
+/**
+ * Who may open the Administration console at all. advocate / viewer are blocked.
+ * admin gets a reduced view (no Users / Roles / Org Settings / Billing).
+ */
+export function canAccessAdministration(role: Role | null | undefined): boolean {
   const r = normalizeRole(role);
   return r === 'platform_admin' || r === 'super_admin' || r === 'admin';
 }
 
-/** Who may create / edit / deactivate users. */
+/**
+ * Who may create / edit / deactivate users. Per the role model, Admins manage
+ * cases — NOT users — so only super_admin (own org) and platform_admin qualify.
+ */
 export function canManageUsers(role: Role | null | undefined): boolean {
-  return canAccessUserManagement(role);
+  const r = normalizeRole(role);
+  return r === 'platform_admin' || r === 'super_admin';
+}
+
+/** Who may open the Users module (same set that can manage users). */
+export function canAccessUserManagement(role: Role | null | undefined): boolean {
+  return canManageUsers(role);
 }
 
 /** Only super_admin (own org) and platform_admin may delete users. */
@@ -82,6 +94,28 @@ export function canDeleteUsers(role: Role | null | undefined): boolean {
 
 /** Only the platform admin can create / edit / delete organisations. */
 export function canManageOrganizations(role: Role | null | undefined): boolean {
+  return isPlatformAdmin(role);
+}
+
+/** Edit organisation-wide settings (super_admin within org, platform anywhere). */
+export function canManageOrgSettings(role: Role | null | undefined): boolean {
+  const r = normalizeRole(role);
+  return r === 'platform_admin' || r === 'super_admin';
+}
+
+/** View / edit the Roles & Permissions matrix. */
+export function canConfigureRoles(role: Role | null | undefined): boolean {
+  const r = normalizeRole(role);
+  return r === 'platform_admin' || r === 'super_admin';
+}
+
+/** Allocate / top up API credits — platform admin only. */
+export function canManageCredits(role: Role | null | undefined): boolean {
+  return isPlatformAdmin(role);
+}
+
+/** Manage subscriptions and billing — platform admin only. */
+export function canManageBilling(role: Role | null | undefined): boolean {
   return isPlatformAdmin(role);
 }
 
