@@ -72,16 +72,20 @@ function fmtDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+function StatusDot({ className }: { className: string }) {
+  return <span className={`h-1.5 w-1.5 rounded-full ${className}`} aria-hidden="true" />;
+}
+
 function CaseStatusBadge({ status }: { status: string | null }) {
-  if (status === 'Active') return <Badge variant="success">Active</Badge>;
-  if (status === 'Pending') return <Badge variant="warning">Pending</Badge>;
-  if (status === 'Disposed') return <Badge variant="secondary">Disposed</Badge>;
+  if (status === 'Active') return <Badge variant="success"><StatusDot className="bg-emerald-500" />Active</Badge>;
+  if (status === 'Pending') return <Badge variant="warning"><StatusDot className="bg-amber-500" />Pending</Badge>;
+  if (status === 'Disposed') return <Badge variant="secondary"><StatusDot className="bg-slate-400" />Disposed</Badge>;
   return status ? <Badge variant="outline">{status}</Badge> : null;
 }
 
 function FollowUpBadge({ status }: { status: string | null }) {
-  if (status === 'Urgent') return <Badge variant="destructive">Urgent</Badge>;
-  if (status === 'Update Required') return <Badge variant="info">Update Required</Badge>;
+  if (status === 'Urgent') return <Badge variant="destructive"><StatusDot className="bg-red-500" />Urgent</Badge>;
+  if (status === 'Update Required') return <Badge variant="info"><StatusDot className="bg-blue-500" />Update Required</Badge>;
   if (status === 'No Action') return <Badge variant="secondary">No Action</Badge>;
   if (status === 'Inactive') return <Badge variant="secondary">Inactive</Badge>;
   return status ? <Badge variant="outline">{status}</Badge> : null;
@@ -908,15 +912,18 @@ export default function CasesPage() {
       )}
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/60 py-4">
+          <CardTitle className="flex items-center gap-2.5 text-[0.9375rem]">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Briefcase className="h-4 w-4" />
+            </span>
             Cases
-            <span className="ml-2 text-sm font-normal text-muted-foreground">
-              ({filtered.length}{cases.length !== filtered.length && ` of ${cases.length}`})
+            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600">
+              {filtered.length}{cases.length !== filtered.length && ` / ${cases.length}`}
             </span>
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
+        <CardContent className="overflow-x-auto p-0">
           {loading ? (
             <div className="space-y-2 p-4">
               {Array.from({ length: 8 }).map((_, i) => (
@@ -978,46 +985,50 @@ export default function CasesPage() {
               </TableHeader>
               <TableBody>
                 {filtered.map(c => (
-                  <TableRow key={c.id} className={!c.active ? 'opacity-50' : ''}>
-                    <TableCell className="font-mono text-xs font-semibold">{c.case_number}</TableCell>
+                  <TableRow key={c.id} className={!c.active ? 'opacity-55' : ''}>
+                    <TableCell className="font-mono text-xs font-semibold text-foreground">{c.case_number}</TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">{c.cnr_number || '—'}</TableCell>
-                    <TableCell className="text-xs">{c.court_name || '—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{c.court_name || '—'}</TableCell>
                     <TableCell className="text-xs">{c.district || '—'}</TableCell>
                     <TableCell className="text-xs">{c.section || '—'}</TableCell>
-                    <TableCell className="text-xs max-w-[160px] truncate" title={c.petitioner ?? ''}>{c.petitioner || '—'}</TableCell>
-                    <TableCell className="text-xs max-w-[160px] truncate" title={c.respondent ?? ''}>{c.respondent || '—'}</TableCell>
+                    <TableCell className="max-w-[160px] truncate text-xs font-medium" title={c.petitioner ?? ''}>{c.petitioner || '—'}</TableCell>
+                    <TableCell className="max-w-[160px] truncate text-xs font-medium" title={c.respondent ?? ''}>{c.respondent || '—'}</TableCell>
                     <TableCell><CaseStatusBadge status={c.case_status} /></TableCell>
                     <TableCell><AdvocateStatusBadge status={c.advocate_status} /></TableCell>
-                    <TableCell className="text-xs">{fmtDate(c.next_hearing_date)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-xs tabular-nums">{fmtDate(c.next_hearing_date)}</TableCell>
                     <TableCell className="text-xs">
                       {c.assigned_advocate_name ? (
-                        <div className="leading-tight">
-                          <p className="font-medium">{c.assigned_advocate_name}</p>
-                          {c.assigned_advocate_email && <p className="text-muted-foreground">{c.assigned_advocate_email}</p>}
-                          {c.assigned_advocate_mobile && <p className="text-muted-foreground">{c.assigned_advocate_mobile}</p>}
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-emerald-600 text-[10px] font-semibold text-white">
+                            {c.assigned_advocate_name.charAt(0).toUpperCase()}
+                          </span>
+                          <div className="min-w-0 leading-tight">
+                            <p className="truncate font-medium">{c.assigned_advocate_name}</p>
+                            {c.assigned_advocate_email && <p className="truncate text-muted-foreground">{c.assigned_advocate_email}</p>}
+                          </div>
                         </div>
                       ) : (
-                        <span className="text-muted-foreground">Unassigned</span>
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">Unassigned</span>
                       )}
                     </TableCell>
                     <TableCell className="text-xs">
                       {connCounts[c.id]
                         ? <button type="button" title="View connected cases"
-                            className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-200"
+                            className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
                             onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsId(c.id); setCaseDetailsTab('connected'); setCaseDetailsOpen(true); }}>
                             <Link2 className="h-3 w-3" />{connCounts[c.id]}
                           </button>
-                        : <button type="button" title="View connected cases" className="text-muted-foreground hover:text-foreground"
+                        : <button type="button" title="View connected cases" className="text-muted-foreground transition-colors hover:text-foreground"
                             onClick={() => { setCaseDetailsNumber(c.case_number); setCaseDetailsId(c.id); setCaseDetailsTab('connected'); setCaseDetailsOpen(true); }}>0</button>}
                     </TableCell>
                     <TableCell className="text-xs">
                       {taskCounts[c.id]?.open
-                        ? <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{taskCounts[c.id].open} Open</span>
+                        ? <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{taskCounts[c.id].open} Open</span>
                         : <span className="text-muted-foreground">0</span>}
                     </TableCell>
                     <TableCell className="text-xs">
                       {taskCounts[c.id]?.overdue
-                        ? <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700">{taskCounts[c.id].overdue} Overdue</span>
+                        ? <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">{taskCounts[c.id].overdue} Overdue</span>
                         : <span className="text-muted-foreground">0</span>}
                     </TableCell>
                     <TableCell className="text-right">
