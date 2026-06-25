@@ -363,12 +363,14 @@ function UsersTab({ actorRole, orgId, organizations }: { actorRole: Role; orgId:
   const [statusFilter, setStatusFilter] = useState('__all__');
   const [orgFilter, setOrgFilter] = useState('__all__');
   const [dialog, setDialog] = useState<{ mode: 'add' | 'edit'; user: AppUser | null } | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [disableTarget, setDisableTarget] = useState<AppUser | null>(null);
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [resetTarget, setResetTarget] = useState<AppUser | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [credential, setCredential] = useState<{ title: string; description: string; email: string; password: string } | null>(null);
 
   const isPlatform = isPlatformAdmin(actorRole);
   const canEdit = canManageUsers(actorRole);
-  const canRemove = canDeleteUsers(actorRole);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -387,35 +389,65 @@ function UsersTab({ actorRole, orgId, organizations }: { actorRole: Role; orgId:
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return users.filter(u => {
-      if (q && !(`${u.full_name} ${u.email}`.toLowerCase().includes(q))) return false;
+      if (q) {
+        const haystack = [
+          u.full_name,
+          u.email,
+          ROLE_LABELS[normalizeRole(u.role)],
+          orgName(u.organization_id, organizations),
+        ].join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       if (roleFilter !== '__all__' && normalizeRole(u.role) !== roleFilter) return false;
       if (statusFilter !== '__all__' && String(u.active) !== statusFilter) return false;
       if (isPlatform && orgFilter !== '__all__' && u.organization_id !== orgFilter) return false;
       return true;
     });
-  }, [users, search, roleFilter, statusFilter, orgFilter, isPlatform]);
+  }, [users, search, roleFilter, statusFilter, orgFilter, isPlatform, organizations]);
 
-  async function toggleActive(u: AppUser) {
+  async function confirmDisable() {
+    if (!disableTarget) return;
+    setStatusBusy(true);
     try {
-      await setUserActive(u.id, !u.active);
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, active: !u.active } : x));
+      await setUserActive(disableTarget.id, !disableTarget.active);
+      const nowActive = !disableTarget.active;
+      setUsers(prev => prev.map(x => x.id === disableTarget.id ? { ...x, active: nowActive } : x));
+      toast.success(nowActive ? 'User activated.' : 'User disabled.');
+      setDisableTarget(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Update failed.');
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function activate(u: AppUser) {
+    try {
+      await setUserActive(u.id, true);
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, active: true } : x));
+      toast.success('User activated.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Update failed.');
     }
   }
 
-  async function confirmDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
+  async function confirmReset() {
+    if (!resetTarget) return;
+    setResetBusy(true);
     try {
-      await deleteUser(deleteTarget.id);
-      toast.success('User removed.');
-      setDeleteTarget(null);
-      await load();
+      const password = await resetUserPassword(resetTarget.id);
+      const email = resetTarget.email;
+      setResetTarget(null);
+      setCredential({
+        title: 'Password Reset',
+        description: 'A new temporary password has been generated. Share it securely with the user.',
+        email,
+        password,
+      });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Delete failed.');
+      toast.error(e instanceof Error ? e.message : 'Password reset failed.');
     } finally {
-      setDeleting(false);
+      setResetBusy(false);
     }
   }
 
@@ -428,7 +460,7 @@ function UsersTab({ actorRole, orgId, organizations }: { actorRole: Role; orgId:
         <div className="flex flex-1 flex-wrap items-center gap-2">
           <div className="relative flex-1 sm:max-w-xs">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input className="pl-9" placeholder="Search name or email…" value={search} onChange={e => setSearch(e.target.value)} />
+            <Input className="pl-9" placeholder="Search name, email, role or organization…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
           <Select value={roleFilter} onValueChange={setRoleFilter}>
             <SelectTrigger className="h-10 w-auto min-w-[8rem] gap-1"><SelectValue /></SelectTrigger>
@@ -471,8 +503,20 @@ function UsersTab({ actorRole, orgId, organizations }: { actorRole: Role; orgId:
       <Card>
         <CardContent className="p-0">
           {loading ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading users…
+            <div className="space-y-3 p-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <Skeleton className="h-9 w-9 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-3.5 w-40" />
+                    <Skeleton className="h-3 w-56" />
+                  </div>
+                  <Skeleton className="hidden h-6 w-20 rounded-full sm:block" />
+                  <Skeleton className="hidden h-6 w-16 rounded-full md:block" />
+                  <Skeleton className="hidden h-4 w-24 lg:block" />
+                  <Skeleton className="h-8 w-8 rounded-md" />
+                </div>
+              ))}
             </div>
           ) : filtered.length === 0 ? (
             <EmptyState
@@ -513,21 +557,13 @@ function UsersTab({ actorRole, orgId, organizations }: { actorRole: Role; orgId:
                       <TableCell><RoleBadge role={normalizeRole(u.role)} /></TableCell>
                       {isPlatform && (
                         <TableCell>
-                          <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                          <Badge variant="outline" className="gap-1.5 font-normal">
                             <Building2 className="h-3.5 w-3.5" /> {orgName(u.organization_id, organizations)}
-                          </span>
+                          </Badge>
                         </TableCell>
                       )}
                       <TableCell className="text-center">
-                        <button
-                          type="button"
-                          onClick={() => canEdit && toggleActive(u)}
-                          disabled={!canEdit}
-                          className={canEdit ? 'cursor-pointer' : 'cursor-default'}
-                          title={canEdit ? (u.active ? 'Click to deactivate' : 'Click to activate') : undefined}
-                        >
-                          {u.active ? <Badge variant="success">Active</Badge> : <Badge variant="secondary">Inactive</Badge>}
-                        </button>
+                        {u.active ? <Badge variant="success">Active</Badge> : <Badge variant="secondary">Inactive</Badge>}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{fmtDate(u.last_login_at)}</TableCell>
                       <TableCell className="text-center">
@@ -537,15 +573,36 @@ function UsersTab({ actorRole, orgId, organizations }: { actorRole: Role; orgId:
                       </TableCell>
                       {canEdit && (
                         <TableCell>
-                          <div className="flex justify-end gap-1">
-                            <Button size="icon-sm" variant="ghost" onClick={() => setDialog({ mode: 'edit', user: u })} title="Edit">
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </Button>
-                            {canRemove && (
-                              <Button size="icon-sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeleteTarget(u)} title="Remove">
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
+                          <div className="flex justify-end">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="icon-sm" variant="ghost" title="Actions">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuLabel>Manage user</DropdownMenuLabel>
+                                <DropdownMenuItem onSelect={() => setDialog({ mode: 'edit', user: u })}>
+                                  <Edit2 className="h-4 w-4" /> Edit user
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => setResetTarget(u)}>
+                                  <KeyRound className="h-4 w-4" /> Reset password
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                {u.active ? (
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onSelect={() => setDisableTarget(u)}
+                                  >
+                                    <Ban className="h-4 w-4" /> Disable user
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem className="text-emerald-600 focus:text-emerald-600" onSelect={() => activate(u)}>
+                                    <UserCheck className="h-4 w-4" /> Activate user
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </TableCell>
                       )}
@@ -568,23 +625,55 @@ function UsersTab({ actorRole, orgId, organizations }: { actorRole: Role; orgId:
           organizations={organizations}
           onClose={() => setDialog(null)}
           onSaved={load}
+          onCreated={info => setCredential({
+            title: 'User Created',
+            description: 'The user has been created. Share these one-time credentials securely.',
+            email: info.email,
+            password: info.temporaryPassword,
+          })}
         />
       )}
 
-      <Dialog open={!!deleteTarget} onOpenChange={v => !v && setDeleteTarget(null)}>
+      <Dialog open={!!disableTarget} onOpenChange={v => !v && setDisableTarget(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Remove User</DialogTitle>
+            <DialogTitle>Disable User</DialogTitle>
             <DialogDescription>
-              Remove <strong>{deleteTarget?.full_name || deleteTarget?.email}</strong> from this organization? This cannot be undone.
+              Disable <strong>{disableTarget?.full_name || disableTarget?.email}</strong>? They will be signed out and
+              unable to sign in until re-activated. Their data is preserved.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="destructive" loading={deleting} onClick={confirmDelete}>Remove User</Button>
+            <Button variant="outline" onClick={() => setDisableTarget(null)}>Cancel</Button>
+            <Button variant="destructive" loading={statusBusy} onClick={confirmDisable}>Disable User</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!resetTarget} onOpenChange={v => !v && setResetTarget(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Generate a new temporary password for <strong>{resetTarget?.full_name || resetTarget?.email}</strong>?
+              Their current password will stop working immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetTarget(null)}>Cancel</Button>
+            <Button loading={resetBusy} onClick={confirmReset}>Reset Password</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <CredentialDialog
+        open={!!credential}
+        title={credential?.title ?? ''}
+        description={credential?.description ?? ''}
+        email={credential?.email ?? ''}
+        password={credential?.password ?? ''}
+        onClose={() => setCredential(null)}
+      />
     </div>
   );
 }
