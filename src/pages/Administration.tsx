@@ -631,11 +631,70 @@ function OrgSettingsTab({ org }: { org: Organization | null }) {
   );
 }
 
-// ── Platform tools (platform admin only) ──────────────────────────────────────
+// ── Reusable building blocks ──────────────────────────────────────────────────
 
-function PlatformLinkCard({ icon: Icon, title, description }: { icon: typeof Building2; title: string; description: string }) {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type ModuleKey =
+  | 'dashboard' | 'users' | 'advocates' | 'roles' | 'notifications'
+  | 'organization' | 'credits' | 'billing' | 'audit';
+
+interface ModuleDef {
+  key: ModuleKey;
+  label: string;
+  icon: typeof Users;
+  group: 'Organization' | 'Platform';
+  visible: (role: Role) => boolean;
+}
+
+const ADMIN_MODULES: ModuleDef[] = [
+  { key: 'dashboard',     label: 'Dashboard',              icon: LayoutDashboard,   group: 'Organization', visible: canAccessAdministration },
+  { key: 'users',         label: 'Users',                  icon: Users,             group: 'Organization', visible: canManageUsers },
+  { key: 'advocates',     label: 'Advocates',              icon: Scale,             group: 'Organization', visible: canAccessAdministration },
+  { key: 'roles',         label: 'Roles & Permissions',    icon: SlidersHorizontal, group: 'Organization', visible: canConfigureRoles },
+  { key: 'notifications', label: 'Notification Settings',  icon: Bell,              group: 'Organization', visible: canAccessAdministration },
+  { key: 'organization',  label: 'Organization Settings',  icon: Building2,         group: 'Organization', visible: canManageOrgSettings },
+  { key: 'credits',       label: 'API Credits',            icon: Wallet,            group: 'Organization', visible: canAccessAdministration },
+  { key: 'audit',         label: 'Audit Logs',             icon: History,           group: 'Organization', visible: canConfigureRoles },
+  { key: 'billing',       label: 'Billing',                icon: CreditCard,        group: 'Platform',     visible: canManageBilling },
+];
+
+const MODULE_GROUPS: Array<'Organization' | 'Platform'> = ['Organization', 'Platform'];
+
+function StatCard({ icon: Icon, label, value, hint, tone }: {
+  icon: typeof Users; label: string; value: string | number; hint?: string; tone: string;
+}) {
   return (
-    <Link to="/organizations" className="group block">
+    <Card>
+      <CardContent className="flex items-center gap-3.5 p-4">
+        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${tone}`}>
+          <Icon className="h-5 w-5" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-2xl font-bold leading-none tracking-tight text-foreground tabular-nums">{value}</p>
+          <p className="mt-1 text-xs font-medium text-muted-foreground">{label}</p>
+          {hint && <p className="truncate text-[11px] text-muted-foreground/80">{hint}</p>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ModuleHeader({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
+  return (
+    <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2>
+        {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
+      </div>
+      {action && <div className="shrink-0">{action}</div>}
+    </div>
+  );
+}
+
+function LinkCard({ icon: Icon, title, description, to }: { icon: typeof Users; title: string; description: string; to: string }) {
+  return (
+    <Link to={to} className="group block">
       <Card className="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
         <CardContent className="flex items-start gap-3 p-5">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -654,34 +713,455 @@ function PlatformLinkCard({ icon: Icon, title, description }: { icon: typeof Bui
   );
 }
 
-function PlatformTab() {
+// ── Dashboard module ──────────────────────────────────────────────────────────
+
+function AdminDashboard({ actorRole, orgId, org, organizations, onNavigate }: {
+  actorRole: Role; orgId: string | null; org: Organization | null;
+  organizations: Organization[]; onNavigate: (key: ModuleKey) => void;
+}) {
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [advocates, setAdvocates] = useState<AdvocateSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const isPlatform = canViewPlatformTools(actorRole);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    Promise.all([
+      fetchUsers(actorRole, orgId).catch(() => [] as AppUser[]),
+      fetchAdvocates(actorRole, orgId).catch(() => [] as AdvocateSummary[]),
+    ]).then(([u, a]) => { if (active) { setUsers(u); setAdvocates(a); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [actorRole, orgId]);
+
+  const activeUsers = users.filter(u => u.active).length;
+  const roleCounts = useMemo(() => {
+    const counts = Object.fromEntries(MATRIX_ROLES.map(r => [r, 0])) as Record<ManagedRole, number>;
+    for (const u of users) counts[normalizeRole(u.role)] += 1;
+    return counts;
+  }, [users]);
+  const credits = Number(org?.available_credits ?? 0);
+
+  if (loading) {
+    return <div className="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading overview…</div>;
+  }
+
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <PlatformLinkCard icon={Building2} title="Organizations" description="Create, edit and manage every organization on the platform." />
-      <PlatformLinkCard icon={CreditCard} title="Billing & Plans" description="Manage subscriptions and plan assignments across organizations." />
-      <PlatformLinkCard icon={ShieldCheck} title="Credits" description="Allocate and top up API credits for each organization." />
-      <PlatformLinkCard icon={BarChart3} title="Platform Analytics" description="Usage, spend and adoption metrics across all tenants." />
+    <div className="space-y-6">
+      <ModuleHeader title="Overview" description={org ? `Administration summary for ${org.organization_name}.` : 'Administration summary.'} />
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard icon={Users} label="Total Users" value={users.length} tone="bg-blue-50 text-blue-600" />
+        <StatCard icon={Activity} label="Active Users" value={activeUsers} hint={`${users.length - activeUsers} inactive`} tone="bg-emerald-50 text-emerald-600" />
+        <StatCard icon={Scale} label="Advocates" value={advocates.length} tone="bg-violet-50 text-violet-600" />
+        <StatCard icon={Wallet} label="API Credits" value={credits.toLocaleString('en-IN')} hint={org?.plan_name ?? 'Trial'} tone="bg-amber-50 text-amber-600" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><TrendingUp className="h-4 w-4 text-primary" /> Role Distribution</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {MATRIX_ROLES.map(r => {
+              const count = roleCounts[r];
+              const pct = users.length ? Math.round((count / users.length) * 100) : 0;
+              return (
+                <div key={r} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <RoleBadge role={r} />
+                    <span className="font-semibold tabular-nums text-foreground">{count}</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-primary/70" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            {canManageUsers(actorRole) && <Button variant="outline" className="w-full justify-start gap-2" onClick={() => onNavigate('users')}><Users className="h-4 w-4" /> Manage Users</Button>}
+            {canConfigureRoles(actorRole) && <Button variant="outline" className="w-full justify-start gap-2" onClick={() => onNavigate('roles')}><SlidersHorizontal className="h-4 w-4" /> Roles & Permissions</Button>}
+            <Button variant="outline" className="w-full justify-start gap-2" onClick={() => onNavigate('notifications')}><Bell className="h-4 w-4" /> Notification Settings</Button>
+            {isPlatform && <Button variant="outline" className="w-full justify-start gap-2" onClick={() => onNavigate('billing')}><CreditCard className="h-4 w-4" /> Billing &amp; Plans</Button>}
+          </CardContent>
+        </Card>
+      </div>
+
+      {isPlatform && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard icon={Building2} label="Organizations" value={organizations.length} tone="bg-indigo-50 text-indigo-600" />
+          <StatCard icon={BarChart3} label="Active Orgs" value={organizations.filter(o => o.active !== false).length} tone="bg-sky-50 text-sky-600" />
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+// ── Roles & Permissions module ────────────────────────────────────────────────
+
+function RolesPermissionsModule({ actorRole, orgId }: { actorRole: Role; orgId: string | null }) {
+  const [matrix, setMatrix] = useState<PermissionMatrix>(cloneDefaultMatrix);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const isPlatform = isPlatformAdmin(actorRole);
+  const canEdit = canConfigureRoles(actorRole);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    fetchPermissionMatrix(orgId)
+      .then(m => { if (active) { setMatrix(m); setDirty(false); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [orgId]);
+
+  function toggle(role: ManagedRole, cat: PermissionCategory) {
+    if (!canEdit || role === 'platform_admin') return;
+    setMatrix(prev => ({ ...prev, [role]: { ...prev[role], [cat]: !prev[role][cat] } }));
+    setDirty(true);
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      await savePermissionMatrix(actorRole, orgId, matrix);
+      toast.success('Permissions saved.');
+      setDirty(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save permissions.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading permissions…</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <ModuleHeader
+        title="Roles & Permissions"
+        description="Toggle what each role can access. Platform Admin always has full access."
+        action={canEdit ? (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setMatrix(cloneDefaultMatrix()); setDirty(true); }}><RefreshCw className="h-3.5 w-3.5" /> Reset to defaults</Button>
+            <Button size="sm" loading={saving} disabled={!dirty} onClick={save} className="gap-1.5"><Check className="h-3.5 w-3.5" /> Save changes</Button>
+          </div>
+        ) : undefined}
+      />
+
+      <div className={`flex items-start gap-2 rounded-lg border px-3.5 py-2.5 text-sm ${isPlatform ? 'border-violet-200 bg-violet-50 text-violet-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
+        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>{isPlatform
+          ? 'You are editing the platform-wide defaults. These apply to every organisation unless individually overridden.'
+          : 'You are editing permission overrides for your organisation only. Platform defaults apply elsewhere.'}</span>
+      </div>
+
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="sticky left-0 z-10 bg-card">Permission</TableHead>
+                {MATRIX_ROLES.map(r => (
+                  <TableHead key={r} className="text-center"><div className="flex justify-center"><RoleBadge role={r} /></div></TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {PERMISSION_CATEGORIES.map(cat => (
+                <TableRow key={cat}>
+                  <TableCell className="sticky left-0 z-10 bg-card">
+                    <p className="font-medium text-foreground">{PERMISSION_LABELS[cat]}</p>
+                    <p className="text-[11px] text-muted-foreground">{PERMISSION_DESCRIPTIONS[cat]}</p>
+                  </TableCell>
+                  {MATRIX_ROLES.map(role => {
+                    const allowed = matrix[role][cat];
+                    const locked = role === 'platform_admin' || !canEdit;
+                    return (
+                      <TableCell key={role} className="text-center">
+                        {locked
+                          ? (allowed
+                            ? <Check className="mx-auto h-4 w-4 text-emerald-500" />
+                            : <X className="mx-auto h-4 w-4 text-muted-foreground/40" />)
+                          : <Switch checked={allowed} onCheckedChange={() => toggle(role, cat)} />}
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ── Notification settings module (current user, self-service) ─────────────────
+
+function NotificationSettingsModule() {
+  const { user } = useAuth();
+  const p = user?.profile;
+  const userId = p?.user_id ?? null;
+  const [prefs, setPrefs] = useState<NotificationPrefs>({
+    email_notifications: p?.email_notifications ?? true,
+    notify_hearing_reminder: p?.notify_hearing_reminder ?? true,
+    notify_task_assignment: p?.notify_task_assignment ?? true,
+    notify_daily_cause_list: p?.notify_daily_cause_list ?? true,
+    notify_case_assignment: p?.notify_case_assignment ?? true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  const set = (k: keyof NotificationPrefs, v: boolean) => { setPrefs(prev => ({ ...prev, [k]: v })); setDirty(true); };
+
+  async function save() {
+    if (!userId) { toast.error('No profile is associated with your account.'); return; }
+    setSaving(true);
+    try {
+      await updateMyNotificationPreferences(userId, prefs);
+      toast.success('Notification preferences saved.');
+      setDirty(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save preferences.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <ModuleHeader
+        title="Notification Settings"
+        description="Choose which email notifications you personally receive."
+        action={<Button size="sm" loading={saving} disabled={!dirty} onClick={save} className="gap-1.5"><Check className="h-3.5 w-3.5" /> Save</Button>}
+      />
+      <Card className="max-w-2xl">
+        <CardContent className="space-y-1 p-2">
+          <div className="flex items-center justify-between rounded-lg px-3.5 py-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Mail className="h-4 w-4" /></span>
+              <div>
+                <p className="font-medium text-foreground">Email Notifications</p>
+                <p className="text-[11px] text-muted-foreground">Master switch for all email alerts.</p>
+              </div>
+            </div>
+            <Switch checked={prefs.email_notifications} onCheckedChange={v => set('email_notifications', v)} />
+          </div>
+          <div className="mx-3.5 h-px bg-border/70" />
+          {NOTIFICATION_FIELDS.map(f => {
+            const key = f.key as keyof NotificationPrefs;
+            return (
+              <div key={f.key} className="flex items-center justify-between rounded-lg px-3.5 py-3">
+                <div>
+                  <p className="font-medium text-foreground">{f.label}</p>
+                  <p className="text-[11px] text-muted-foreground">{f.hint}</p>
+                </div>
+                <Switch checked={Boolean(prefs[key]) && prefs.email_notifications} disabled={!prefs.email_notifications} onCheckedChange={v => set(key, v)} />
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ── API Credits module ────────────────────────────────────────────────────────
+
+function ApiCreditsModule({ org, actorRole }: { org: Organization | null; actorRole: Role }) {
+  const [summary, setSummary] = useState<OrgUsageSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const credits = Number(org?.available_credits ?? 0);
+
+  useEffect(() => {
+    let active = true;
+    const id = org?.id;
+    if (!id || !UUID_RE.test(id)) { setLoading(false); setSummary(null); return; }
+    setLoading(true);
+    Promise.all([fetchUsageForOrg(id), fetchPricing()])
+      .then(([usage, pricing]) => { if (active) setSummary(summarizeUsage(usage, pricing)); })
+      .catch(() => { if (active) setSummary(null); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [org?.id]);
+
+  return (
+    <div className="space-y-5">
+      <ModuleHeader
+        title="API Credits"
+        description="eCourts usage and remaining credits for your organisation."
+        action={canManageCredits(actorRole)
+          ? <Link to="/organizations"><Button variant="outline" size="sm" className="gap-1.5"><CreditCard className="h-3.5 w-3.5" /> Manage credits</Button></Link>
+          : undefined}
+      />
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground"><Wallet className="h-4 w-4" /> Available Credits</div>
+            <p className="mt-2 text-3xl font-bold tabular-nums text-foreground">{credits.toLocaleString('en-IN')}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Plan: {org?.plan_name ?? 'Trial'}</p>
+          </CardContent>
+        </Card>
+        <StatCard icon={Activity} label="API Calls" value={summary?.apiCalls ?? 0} tone="bg-blue-50 text-blue-600" />
+        <StatCard icon={RefreshCw} label="Cases Synced" value={summary?.casesSynced ?? 0} hint={summary?.lastSync ? `Last: ${fmtDate(summary.lastSync)}` : undefined} tone="bg-emerald-50 text-emerald-600" />
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Usage by Endpoint</CardTitle></CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading usage…</div>
+          ) : !summary || summary.byEndpoint.length === 0 ? (
+            <EmptyState icon={BarChart3} title="No usage yet" description="API usage will appear here once you sync cases from eCourts." className="m-4" />
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Endpoint</TableHead>
+                    <TableHead className="text-right">Calls</TableHead>
+                    <TableHead className="text-right">Rate (₹)</TableHead>
+                    <TableHead className="text-right">Charged (₹)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {summary.byEndpoint.map(e => (
+                    <TableRow key={e.endpoint}>
+                      <TableCell className="font-medium">{e.endpoint}</TableCell>
+                      <TableCell className="text-right tabular-nums">{e.calls}</TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">{e.rate.toFixed(2)}</TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums">{e.amountCharged.toFixed(2)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ── Billing module (platform admin only) ──────────────────────────────────────
+
+function BillingModule({ organizations }: { organizations: Organization[] }) {
+  const totalCredits = organizations.reduce((s, o) => s + Number(o.available_credits ?? 0), 0);
+  return (
+    <div className="space-y-5">
+      <ModuleHeader title="Billing &amp; Plans" description="Subscriptions, plans and credits across all organisations." />
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard icon={Building2} label="Organizations" value={organizations.length} tone="bg-indigo-50 text-indigo-600" />
+        <StatCard icon={Wallet} label="Total Credits" value={totalCredits.toLocaleString('en-IN')} tone="bg-amber-50 text-amber-600" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <LinkCard icon={Building2} to="/organizations" title="Manage Organizations" description="Create organisations, change plans and top up credits." />
+        <LinkCard icon={BarChart3} to="/organizations" title="Platform Analytics" description="Usage, spend and adoption across all tenants." />
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Organizations</CardTitle></CardHeader>
+        <CardContent className="p-0">
+          {organizations.length === 0 ? (
+            <EmptyState icon={Building2} title="No organizations" description="Create your first organisation to begin billing." className="m-4" />
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Organization</TableHead>
+                    <TableHead>Plan</TableHead>
+                    <TableHead className="text-right">Credits</TableHead>
+                    <TableHead className="text-center">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {organizations.map(o => (
+                    <TableRow key={o.id}>
+                      <TableCell className="font-medium">{o.organization_name}</TableCell>
+                      <TableCell><Badge variant="info">{o.plan_name ?? 'Trial'}</Badge></TableCell>
+                      <TableCell className="text-right tabular-nums">{Number(o.available_credits ?? 0).toLocaleString('en-IN')}</TableCell>
+                      <TableCell className="text-center">{o.active === false ? <Badge variant="secondary">Inactive</Badge> : <Badge variant="success">Active</Badge>}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ── Audit logs module (future) ────────────────────────────────────────────────
+
+function AuditLogsModule() {
+  const planned = [
+    'User sign-ins and sign-outs',
+    'Role and permission changes',
+    'User invitations and removals',
+    'Credit top-ups and plan changes',
+    'Case and advocate assignments',
+  ];
+  return (
+    <div className="space-y-4">
+      <ModuleHeader title="Audit Logs" description="A tamper-evident history of administrative activity." action={<Badge variant="warning">Coming soon</Badge>} />
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-start gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"><History className="h-5 w-5" /></span>
+            <div>
+              <p className="font-semibold text-foreground">Audit logging is on the roadmap</p>
+              <p className="mt-1 text-sm text-muted-foreground">Once enabled, this module records the following events with actor, timestamp and before/after values:</p>
+              <ul className="mt-3 space-y-1.5">
+                {planned.map(item => (
+                  <li key={item} className="flex items-center gap-2 text-sm text-foreground"><Check className="h-3.5 w-3.5 text-emerald-500" /> {item}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ── Console shell ─────────────────────────────────────────────────────────────
 
 export default function Administration() {
   const { user } = useAuth();
   const { org } = useOrg();
   const actorRole = normalizeRole(user?.profile?.role);
   const orgId = user?.profile?.organization_id ?? org?.id ?? null;
-  const isPlatform = canViewPlatformTools(actorRole);
 
   const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [tab, setTab] = useState('users');
+  const [active, setActive] = useState<ModuleKey>('dashboard');
 
   useEffect(() => {
     fetchOrganizations().then(setOrganizations).catch(() => setOrganizations([]));
   }, []);
 
-  if (!canAccessUserManagement(actorRole)) {
+  const visibleModules = useMemo(() => ADMIN_MODULES.filter(m => m.visible(actorRole)), [actorRole]);
+
+  useEffect(() => {
+    if (visibleModules.length && !visibleModules.some(m => m.key === active)) {
+      setActive(visibleModules[0].key);
+    }
+  }, [visibleModules, active]);
+
+  if (!canAccessAdministration(actorRole)) {
     return (
       <div className="p-6">
         <EmptyState
@@ -693,44 +1173,69 @@ export default function Administration() {
     );
   }
 
+  function renderModule() {
+    switch (active) {
+      case 'users': return <UsersTab actorRole={actorRole} orgId={orgId} organizations={organizations} />;
+      case 'advocates': return <AdvocatesTab actorRole={actorRole} orgId={orgId} />;
+      case 'roles': return <RolesPermissionsModule actorRole={actorRole} orgId={orgId} />;
+      case 'notifications': return <NotificationSettingsModule />;
+      case 'organization': return <OrgSettingsTab org={org} />;
+      case 'credits': return <ApiCreditsModule org={org} actorRole={actorRole} />;
+      case 'billing': return <BillingModule organizations={organizations} />;
+      case 'audit': return <AuditLogsModule />;
+      case 'dashboard':
+      default:
+        return <AdminDashboard actorRole={actorRole} orgId={orgId} org={org} organizations={organizations} onNavigate={setActive} />;
+    }
+  }
+
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <div className="flex flex-col gap-1">
         <p className="eyebrow text-primary">Administration</p>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">User Management</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Administration</h1>
           <Badge variant={ROLE_BADGE_VARIANT[actorRole]} className="gap-1">
             <ShieldCheck className="h-3 w-3" /> {ROLE_LABELS[actorRole]}
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          Manage users, roles, advocates and notification preferences for your organization.
+          Central console to manage your organisation — users, roles, notifications, credits and more.
         </p>
       </div>
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto">
-          <TabsTrigger value="users" className="gap-1.5"><Users className="h-3.5 w-3.5" /> Users</TabsTrigger>
-          <TabsTrigger value="advocates" className="gap-1.5"><Scale className="h-3.5 w-3.5" /> Advocates</TabsTrigger>
-          <TabsTrigger value="organization" className="gap-1.5"><Building2 className="h-3.5 w-3.5" /> Organization</TabsTrigger>
-          {isPlatform && <TabsTrigger value="platform" className="gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Platform</TabsTrigger>}
-        </TabsList>
+      <div className="grid gap-6 lg:grid-cols-[248px_1fr]">
+        <aside className="lg:sticky lg:top-4 lg:self-start">
+          <nav className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:pb-0">
+            {MODULE_GROUPS.map(group => {
+              const items = visibleModules.filter(m => m.group === group);
+              if (items.length === 0) return null;
+              return (
+                <div key={group} className="flex gap-1 lg:flex-col lg:gap-0.5">
+                  <p className="hidden px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground lg:block">{group}</p>
+                  {items.map(m => {
+                    const selected = active === m.key;
+                    return (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() => setActive(m.key)}
+                        className={`group flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors ${selected ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                      >
+                        <m.icon className="h-4 w-4 shrink-0" />
+                        <span>{m.label}</span>
+                        {selected && <ChevronRight className="ml-auto hidden h-4 w-4 lg:block" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </nav>
+        </aside>
 
-        <TabsContent value="users" className="mt-5">
-          <UsersTab actorRole={actorRole} orgId={orgId} organizations={organizations} />
-        </TabsContent>
-        <TabsContent value="advocates" className="mt-5">
-          <AdvocatesTab actorRole={actorRole} orgId={orgId} />
-        </TabsContent>
-        <TabsContent value="organization" className="mt-5">
-          <OrgSettingsTab org={org} />
-        </TabsContent>
-        {isPlatform && (
-          <TabsContent value="platform" className="mt-5">
-            <PlatformTab />
-          </TabsContent>
-        )}
-      </Tabs>
+        <div className="min-w-0">{renderModule()}</div>
+      </div>
     </div>
   );
 }
