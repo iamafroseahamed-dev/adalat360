@@ -444,6 +444,20 @@ function topN(map: Map<string, number>, n: number): CategoryCount[] {
     .slice(0, n);
 }
 
+function pctDelta(current: number, previous: number): number {
+  if (previous === 0) return current === 0 ? 0 : 100;
+  return +(((current - previous) / previous) * 100).toFixed(1);
+}
+
+function toTrend(current: number, previous: number, sparkline: number[]): KpiTrend {
+  return { current, previous, deltaPct: pctDelta(current, previous), sparkline };
+}
+
+function toCategoryPct(rows: CategoryCount[]): CategoryPct[] {
+  const total = rows.reduce((s, r) => s + r.value, 0);
+  return rows.map(r => ({ ...r, percent: total > 0 ? +((r.value / total) * 100).toFixed(1) : 0 }));
+}
+
 function orgOrLegacyFilter(orgId?: string | null): string | null {
   if (!orgId) return null;
   return `organization_id.eq.${orgId},organization_id.is.null`;
@@ -451,16 +465,17 @@ function orgOrLegacyFilter(orgId?: string | null): string | null {
 
 export async function fetchExecutiveAnalytics(orgId?: string | null, filters?: DashboardFilters): Promise<ExecutiveAnalytics> {
   let casesQuery = supabase.from('cases')
-    .select('id, organization_id, case_number, court_name, district, section, case_status, case_type, advocate_status, next_hearing_date, assigned_advocate_name, sensitivity, cla_party_status, created_at, updated_at')
+    .select('id, organization_id, case_number, court_name, district, section, case_status, case_type, follow_up_status, nature_of_disposal, advocate_status, next_hearing_date, assigned_advocate_name, sensitivity, cla_party_status, created_at, updated_at')
     .range(0, PAGE);
-  const scopedFilter = orgOrLegacyFilter(orgId);
+  const effectiveOrgId = filters?.organizationId ?? orgId;
+  const scopedFilter = orgOrLegacyFilter(effectiveOrgId);
   if (scopedFilter) casesQuery = casesQuery.or(scopedFilter);
 
   const [casesRes, listingsRes, connRes, usageRes] = await Promise.all([
     casesQuery,
     (() => {
       let q = supabase.from('today_matched_listings')
-        .select('court_hall, judge_name, listed_date, organization_id')
+        .select('case_id, case_number, court_hall, judge_name, stage, vc_link, listed_date, organization_id')
         .range(0, PAGE);
       if (scopedFilter) q = q.or(scopedFilter);
       return q;
@@ -489,9 +504,12 @@ export async function fetchExecutiveAnalytics(orgId?: string | null, filters?: D
     const cType = (c.case_type ?? '').trim() || deriveCaseType(c.case_number) || '';
     return (!filters?.district || (c.district ?? '') === filters.district)
       && (!filters?.court || (c.court_name ?? '') === filters.court)
+      && (!filters?.section || (c.section ?? '') === filters.section)
       && (!filters?.caseType || cType === filters.caseType)
       && (!filters?.caseStatus || (c.case_status ?? '') === filters.caseStatus)
       && (!filters?.advocate || (c.assigned_advocate_name ?? '') === filters.advocate)
+      && (!filters?.claParty || (c.cla_party_status ?? '') === filters.claParty)
+      && (!filters?.sensitive || (c.sensitivity ?? '') === filters.sensitive)
       && inDateRange(c.created_at);
   });
   const caseIds = new Set(cases.map(c => c.id));
@@ -500,9 +518,12 @@ export async function fetchExecutiveAnalytics(orgId?: string | null, filters?: D
   const filterMeta = {
     districts: Array.from(new Set(rawCases.map(c => (c.district ?? '').trim()).filter(Boolean))).sort(),
     courts: Array.from(new Set(rawCases.map(c => (c.court_name ?? '').trim()).filter(Boolean))).sort(),
+    sections: Array.from(new Set(rawCases.map(c => (c.section ?? '').trim()).filter(Boolean))).sort(),
     caseTypes: Array.from(new Set(rawCases.map(c => ((c.case_type ?? '').trim() || deriveCaseType(c.case_number) || '').trim()).filter(Boolean))).sort(),
     statuses: Array.from(new Set(rawCases.map(c => (c.case_status ?? '').trim()).filter(Boolean))).sort(),
     advocates: Array.from(new Set(rawCases.map(c => (c.assigned_advocate_name ?? '').trim()).filter(Boolean))).sort(),
+    claParty: Array.from(new Set(rawCases.map(c => (c.cla_party_status ?? '').trim()).filter(Boolean))).sort(),
+    sensitive: Array.from(new Set(rawCases.map(c => (c.sensitivity ?? '').trim()).filter(Boolean))).sort(),
   };
   if (import.meta.env.DEV) {
     console.log('[Dashboard] executive-analytics', { orgId: orgId ?? null, scoped: !!scopedFilter, cases: cases.length, listings: listings.length });
@@ -553,12 +574,34 @@ export async function fetchExecutiveAnalytics(orgId?: string | null, filters?: D
   const isActive = (s: string | null) => (s ?? '').toLowerCase() === 'active';
   const isSensitive = (c: CaseRow) => (c.sensitivity ?? '').trim().toLowerCase() === 'sensitive';
   const isClaParty = (c: CaseRow) => !!(c.cla_party_status ?? '').trim();
+  const isUpdateRequired = (c: CaseRow) => (c.follow_up_status ?? '').trim().toLowerCase() === 'update required';
+
+  const disposedRows = cases.filter(c => isDisposed(c.case_status));
+  const disposedDurations = disposedRows
+    .map(c => {
+      const start = c.created_at ? new Date(c.created_at).getTime() : 0;
+      const end = c.updated_at ? new Date(c.updated_at).getTime() : 0;
+      if (!start || !end || end < start) return 0;
+      return Math.floor((end - start) / 86400000);
+    })
+    .filter(v => v > 0);
+  const averageDisposalDays = disposedDurations.length
+    ? Math.round(disposedDurations.reduce((s, d) => s + d, 0) / disposedDurations.length)
+    : 0;
+  const successDisposals = disposedRows.filter(c => {
+    const n = (c.nature_of_disposal ?? '').toLowerCase();
+    return n.includes('allowed') || n.includes('partly allowed');
+  }).length;
+  const caseSuccessRate = disposedRows.length ? +((successDisposals / disposedRows.length) * 100).toFixed(1) : 0;
+  const totalAdvocates = new Set(cases.map(c => (c.assigned_advocate_name ?? '').trim()).filter(Boolean)).size;
 
   const kpis: ExecKpis = {
     totalCases: cases.length,
     pendingCases: cases.filter(c => isPending(c.case_status)).length,
     disposedCases: cases.filter(c => isDisposed(c.case_status)).length,
     activeCases: cases.filter(c => isActive(c.case_status)).length,
+    urgentHearings7: cases.filter(c => c.next_hearing_date && String(c.next_hearing_date) >= today && String(c.next_hearing_date) <= in7).length,
+    updateRequired: cases.filter(isUpdateRequired).length,
     sensitiveCases: cases.filter(isSensitive).length,
     claPartyCases: cases.filter(isClaParty).length,
     casesListedToday: listings.filter(l => String(l.listed_date ?? '').slice(0, 10) === today).length,
@@ -571,14 +614,17 @@ export async function fetchExecutiveAnalytics(orgId?: string | null, filters?: D
     legalOpinionPending: cases.filter(isLegalOpinionPending).length,
     compliancePending: cases.filter(isCompliancePending).length,
     connectedCases: connectedTotal,
-    assignedAdvocates: new Set(cases.map(c => (c.assigned_advocate_name ?? '').trim()).filter(Boolean)).size,
+    assignedAdvocates: totalAdvocates,
     todaysCauseListMatches: listings.filter(l => String(l.listed_date ?? '').slice(0, 10) === today).length,
     apiCallsToday: usageRows.filter(r => String(r.created_at ?? '').slice(0, 10) === today).length,
     apiCreditsRemaining: 0,
+    averageDisposalDays,
+    caseSuccessRate,
+    totalAdvocates,
   };
 
-  if (orgId) {
-    const orgRes = await supabase.from('organizations').select('available_credits').eq('id', orgId).maybeSingle();
+  if (effectiveOrgId) {
+    const orgRes = await supabase.from('organizations').select('available_credits').eq('id', effectiveOrgId).maybeSingle();
     kpis.apiCreditsRemaining = Number(orgRes.data?.available_credits ?? 0);
   }
 
@@ -735,11 +781,38 @@ export async function fetchExecutiveAnalytics(orgId?: string | null, filters?: D
     .sort((a, b) => b.value - a.value);
 
   // ── Advocate performance (CASE-level only — never task assignee data) ──
-  interface AdvAgg { assignedCases: number; hearings: number; upcoming: number; disposed: number; ready: number; docs: number; counter: number; }
+  interface AdvAgg {
+    assignedCases: number;
+    pendingCases: number;
+    hearings: number;
+    upcoming: number;
+    disposed: number;
+    ready: number;
+    docs: number;
+    counter: number;
+    disposalDaysTotal: number;
+    disposalRows: number;
+    success: number;
+  }
   const advMap = new Map<string, AdvAgg>();
   const adv = (name: string): AdvAgg => {
     let a = advMap.get(name);
-    if (!a) { a = { assignedCases: 0, hearings: 0, upcoming: 0, disposed: 0, ready: 0, docs: 0, counter: 0 }; advMap.set(name, a); }
+    if (!a) {
+      a = {
+        assignedCases: 0,
+        pendingCases: 0,
+        hearings: 0,
+        upcoming: 0,
+        disposed: 0,
+        ready: 0,
+        docs: 0,
+        counter: 0,
+        disposalDaysTotal: 0,
+        disposalRows: 0,
+        success: 0,
+      };
+      advMap.set(name, a);
+    }
     return a;
   };
   for (const c of cases) {
@@ -747,7 +820,18 @@ export async function fetchExecutiveAnalytics(orgId?: string | null, filters?: D
     if (!name) continue;
     const a = adv(name);
     a.assignedCases += 1;
+    if (isPending(c.case_status)) a.pendingCases += 1;
     if (isDisposed(c.case_status)) a.disposed += 1;
+    if (isDisposed(c.case_status)) {
+      const s = c.created_at ? new Date(c.created_at).getTime() : 0;
+      const e = c.updated_at ? new Date(c.updated_at).getTime() : 0;
+      if (s && e && e >= s) {
+        a.disposalDaysTotal += Math.floor((e - s) / 86400000);
+        a.disposalRows += 1;
+      }
+      const n = (c.nature_of_disposal ?? '').toLowerCase();
+      if (n.includes('allowed') || n.includes('partly allowed')) a.success += 1;
+    }
     if (c.next_hearing_date && String(c.next_hearing_date).slice(0, 7) === thisMonth) a.hearings += 1;
     if (c.next_hearing_date && String(c.next_hearing_date) >= today && String(c.next_hearing_date) <= in30) a.upcoming += 1;
     if (isReadyForHearing(c)) a.ready += 1;
@@ -758,12 +842,15 @@ export async function fetchExecutiveAnalytics(orgId?: string | null, filters?: D
     .map(([advocate, a]) => ({
       advocate,
       assignedCases: a.assignedCases,
+      pendingCases: a.pendingCases,
       readyForHearing: a.ready,
       documentsAwaited: a.docs,
       counterPending: a.counter,
       hearingsThisMonth: a.hearings,
       upcomingHearings: a.upcoming,
       disposedCases: a.disposed,
+      successRate: a.disposed > 0 ? +((a.success / a.disposed) * 100).toFixed(1) : 0,
+      averageDisposalDays: a.disposalRows > 0 ? Math.round(a.disposalDaysTotal / a.disposalRows) : 0,
     }))
     .sort((x, y) => y.assignedCases - x.assignedCases);
 
@@ -827,14 +914,19 @@ export async function fetchExecutiveAnalytics(orgId?: string | null, filters?: D
     .map(c => {
       const nh = String(c.next_hearing_date);
       const priority: 'High' | 'Medium' | 'Low' = nh <= in3 ? 'High' : nh <= in7 ? 'Medium' : 'Low';
+      const listing = listings.find(l => (l.case_id && l.case_id === c.id) || (l.case_number && c.case_number && l.case_number === c.case_number));
       return {
         caseId: c.id,
         caseNumber: c.case_number,
+        court: c.court_name,
+        judge: listing?.judge_name ?? null,
+        district: c.district,
         advocate: c.assigned_advocate_name,
         hearingDate: c.next_hearing_date,
         openTasks: openTasksByCase.get(c.id) ?? 0,
         status: c.case_status,
         advocateStatus: c.advocate_status,
+        vcLink: listing?.vc_link ?? null,
         priority,
       };
     });
