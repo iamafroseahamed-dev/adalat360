@@ -270,8 +270,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <Card className="sticky top-0 z-20 border-blue-100 bg-background/95 backdrop-blur">
-        <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><LayoutDashboard className="h-4 w-4 text-blue-600" /> Sticky Filters</CardTitle></CardHeader>
+      <Card className="border-blue-100 bg-background/95 backdrop-blur">
+        <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><LayoutDashboard className="h-4 w-4 text-blue-600" /> Filters</CardTitle></CardHeader>
         <CardContent>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {isPlatformAdmin && (
