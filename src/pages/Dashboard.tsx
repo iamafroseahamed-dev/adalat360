@@ -34,7 +34,6 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock,
-  Cpu,
   Download,
   FileDown,
   Gavel,
@@ -161,7 +160,7 @@ function MatrixTable({ title, rows }: { title: string; rows: Array<{ row: string
 }
 
 export default function DashboardPage() {
-  const { orgId, org, isPlatformAdmin } = useOrg();
+  const { orgId, isPlatformAdmin } = useOrg();
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null);
   const [platformOrgId, setPlatformOrgId] = useState<string>('__all__');
   const [filters, setFilters] = useState<DashboardFilters>({});
@@ -185,12 +184,6 @@ export default function DashboardPage() {
   const kp = a?.kpis;
   const tr = a?.kpiTrends;
   const drill = selectedDistrict ? a?.districtDetails[selectedDistrict] : undefined;
-
-  const caseStatusPie = useMemo(() => ([
-    { name: 'Pending', value: kp?.pendingCases ?? 0 },
-    { name: 'Disposed', value: kp?.disposedCases ?? 0 },
-    { name: 'Active', value: kp?.activeCases ?? 0 },
-  ]), [kp?.activeCases, kp?.disposedCases, kp?.pendingCases]);
 
   const topDistricts = useMemo(() => (a?.districts ?? []).slice(0, 10), [a?.districts]);
   const heatCols = useMemo(() => Array.from(new Set((a?.courtCaseTypeHeatmap ?? []).map(x => x.caseType))), [a?.courtCaseTypeHeatmap]);
