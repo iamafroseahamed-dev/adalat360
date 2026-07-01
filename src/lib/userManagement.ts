@@ -5,9 +5,73 @@
  * admin. This mirrors the row-level-security policies in migration 017 — the
  * client filter is a convenience; RLS is the real boundary.
  */
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { Organization, Role } from '@/types';
 import { isPlatformAdmin } from '@/lib/roles';
+
+const serviceUrl = import.meta.env.VITE_SUPABASE_URL as string;
+const serviceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY as string;
+
+const NOTIFICATION_KEYS = [
+  'email_notifications',
+  'notify_hearing_reminder',
+  'notify_task_assignment',
+  'notify_daily_cause_list',
+  'notify_case_assignment',
+] as const;
+
+function getAdminClient(): SupabaseClient {
+  if (!serviceUrl || !serviceRoleKey) {
+    throw new Error('Missing VITE_SUPABASE_SERVICE_ROLE_KEY env var for frontend user administration.');
+  }
+  return createClient(serviceUrl, serviceRoleKey);
+}
+
+function normalizeRole(role: string | null | undefined): Role {
+  const r = (role ?? '').toLowerCase();
+  if (r === 'user') return 'viewer';
+  if (
+    r === 'platform_admin' ||
+    r === 'super_admin' ||
+    r === 'admin' ||
+    r === 'advocate' ||
+    r === 'viewer'
+  ) {
+    return r as Role;
+  }
+  return 'viewer';
+}
+
+function generatePassword(length = 16): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%*?';
+  const bytes = new Uint32Array(length);
+  crypto.getRandomValues(bytes);
+  let out = '';
+  for (const n of bytes) out += alphabet[n % alphabet.length];
+  return out;
+}
+
+async function audit(
+  action: string,
+  target: { id?: string; email?: string | null; organization_id?: string | null } | null,
+  metadata: Record<string, unknown> = {},
+) {
+  const session = await supabase.auth.getSession();
+  const user = session.data.session?.user;
+  await getAdminClient().from('audit_logs').insert({
+    organization_id: target?.organization_id ?? null,
+    actor_user_id: user?.id ?? null,
+    actor_email: user?.email ?? null,
+    action,
+    target_type: 'user',
+    target_id: target?.id ?? null,
+    target_email: target?.email ?? null,
+    metadata,
+  }).catch(() => {
+    // Audit failures do not break the primary operation.
+  });
+}
 
 export interface AppUser {
   id: string;
@@ -79,110 +143,185 @@ export interface CreateUserResult {
 }
 
 /**
- * Invoke the secure `admin-users` Edge Function. The function is the ONLY place
- * privileged operations run (it holds the service-role key) and it enforces
- * role/organisation permissions on the server. This helper unwraps both the
- * transport-level errors and the JSON `{ error }` body the function returns.
- */
-async function invokeAdmin<T = { success: true }>(body: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.functions.invoke('admin-users', { body });
-
-  if (error) {
-    let message = error.message;
-    // supabase-js wraps non-2xx responses in a FunctionsHttpError whose JSON
-    // body carries the friendly message we returned from the function.
-    const ctx = (error as { context?: Response }).context;
-    if (ctx && typeof ctx.json === 'function') {
-      try {
-        const payload = await ctx.json();
-        if (payload?.error) message = payload.error;
-      } catch {
-        /* fall back to the transport error message */
-      }
-    }
-    throw new Error(friendlyError(message));
-  }
-
-  if (data && (data as { error?: string }).error) {
-    throw new Error(friendlyError((data as { error: string }).error));
-  }
-  return data as T;
-}
-
-function friendlyError(message: string): string {
-  if (/Failed to (send|fetch)|NetworkError|Failed to fetch/i.test(message)) {
-    return 'Could not reach the user service. Ensure the admin-users Edge Function is deployed.';
-  }
-  return message;
-}
-
-/**
  * Create a fully provisioned user: Supabase Auth account + profile (+ advocate
  * directory entry). Returns a one-time temporary password to share securely.
  */
 export async function createUser(input: UserInput): Promise<CreateUserResult> {
-  return invokeAdmin<CreateUserResult>({
-    action: 'create',
-    full_name: input.full_name.trim(),
-    email: input.email.trim().toLowerCase(),
-    mobile: input.mobile.trim(),
-    role: input.role,
-    organization_id: input.organization_id,
-    notifications: {
-      email_notifications: input.email_notifications,
-      notify_hearing_reminder: input.notify_hearing_reminder,
-      notify_task_assignment: input.notify_task_assignment,
-      notify_daily_cause_list: input.notify_daily_cause_list,
-      notify_case_assignment: input.notify_case_assignment,
-    },
+  const full_name = input.full_name.trim();
+  const email = input.email.trim().toLowerCase();
+  const mobile = input.mobile.trim();
+  const targetRole = normalizeRole(input.role);
+  const organizationId = input.organization_id ?? null;
+
+  if (!full_name) throw new Error('Full name is required.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error('A valid email address is required.');
+  }
+  if (!organizationId) throw new Error('An organization is required.');
+
+  const admin = getAdminClient();
+  const { data: existing } = await admin.from('profiles').select('id').ilike('email', email).maybeSingle();
+  if (existing) throw new Error('A user with this email already exists.');
+
+  const temporaryPassword = generatePassword();
+  const { data: created, error: createErr } = await admin.auth.admin.createUser({
+    email,
+    password: temporaryPassword,
+    email_confirm: true,
+    user_metadata: { full_name },
   });
+  if (createErr || !created?.user) {
+    const msg = createErr?.message ?? 'unknown error';
+    if (/registered|exists/i.test(msg)) {
+      throw new Error('A user with this email already exists.');
+    }
+    throw new Error(`Auth creation failed: ${msg}`);
+  }
+
+  const newUserId = created.user.id;
+  const profileRow: Record<string, unknown> = {
+    user_id: newUserId,
+    organization_id: organizationId,
+    full_name,
+    email,
+    mobile,
+    role: targetRole,
+    active: true,
+  };
+  for (const key of NOTIFICATION_KEYS) {
+    profileRow[key] = input[key as keyof UserInput] !== undefined ? Boolean(input[key as keyof UserInput]) : true;
+  }
+
+  const { error: profileErr } = await admin.from('profiles').insert(profileRow);
+  if (profileErr) {
+    await admin.auth.admin.deleteUser(newUserId).catch(() => {});
+    throw new Error(`Profile creation failed: ${profileErr.message}`);
+  }
+
+  if (targetRole === 'advocate') {
+    try {
+      const { data: dupe } = await admin
+        .from('advocates')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .ilike('email', email)
+        .maybeSingle();
+      if (!dupe) {
+        await admin.from('advocates').insert({
+          organization_id: organizationId,
+          advocate_name: full_name,
+          email,
+          mobile,
+          active: true,
+        });
+      }
+    } catch {
+      // Advocate mirroring is best-effort.
+    }
+  }
+
+  if (targetRole === 'super_admin') {
+    await demoteOtherSuperAdmins(organizationId, newUserId);
+  }
+
+  await audit(
+    targetRole === 'super_admin' ? 'super_admin_assigned' : 'user_created',
+    { id: undefined, email, organization_id: organizationId },
+    { role: targetRole },
+  );
+
+  return { userId: newUserId, temporaryPassword };
 }
 
 export async function updateUser(id: string, patch: Partial<UserInput>): Promise<void> {
-  const body: Record<string, unknown> = { action: 'update', profile_id: id };
-  if (patch.full_name !== undefined) body.full_name = patch.full_name.trim();
-  if (patch.email !== undefined) body.email = patch.email.trim().toLowerCase();
-  if (patch.mobile !== undefined) body.mobile = patch.mobile.trim();
-  if (patch.role !== undefined) body.role = patch.role;
-  if (patch.organization_id !== undefined) body.organization_id = patch.organization_id;
-  if (patch.active !== undefined) body.active = patch.active;
-  if (patch.email_notifications !== undefined) body.email_notifications = patch.email_notifications;
-  if (patch.notify_hearing_reminder !== undefined) body.notify_hearing_reminder = patch.notify_hearing_reminder;
-  if (patch.notify_task_assignment !== undefined) body.notify_task_assignment = patch.notify_task_assignment;
-  if (patch.notify_daily_cause_list !== undefined) body.notify_daily_cause_list = patch.notify_daily_cause_list;
-  if (patch.notify_case_assignment !== undefined) body.notify_case_assignment = patch.notify_case_assignment;
-  await invokeAdmin(body);
+  const updates: Record<string, unknown> = {};
+  if (patch.full_name !== undefined) updates.full_name = patch.full_name.trim();
+  if (patch.email !== undefined) updates.email = patch.email.trim().toLowerCase();
+  if (patch.mobile !== undefined) updates.mobile = patch.mobile.trim();
+  if (patch.role !== undefined) updates.role = patch.role;
+  if (patch.organization_id !== undefined) updates.organization_id = patch.organization_id;
+  if (patch.active !== undefined) updates.active = patch.active;
+  if (patch.email_notifications !== undefined) updates.email_notifications = patch.email_notifications;
+  if (patch.notify_hearing_reminder !== undefined) updates.notify_hearing_reminder = patch.notify_hearing_reminder;
+  if (patch.notify_task_assignment !== undefined) updates.notify_task_assignment = patch.notify_task_assignment;
+  if (patch.notify_daily_cause_list !== undefined) updates.notify_daily_cause_list = patch.notify_daily_cause_list;
+  if (patch.notify_case_assignment !== undefined) updates.notify_case_assignment = patch.notify_case_assignment;
+  if (Object.keys(updates).length === 0) return;
+
+  const { error } = await getAdminClient().from('profiles').update(updates).eq('id', id);
+  if (error) throw new Error(error.message);
 }
 
 export async function setUserActive(id: string, active: boolean): Promise<void> {
-  await invokeAdmin({ action: 'set_status', profile_id: id, active });
+  const admin = getAdminClient();
+  const { data: target } = await admin
+    .from('profiles')
+    .select('id, user_id, email, organization_id')
+    .eq('id', id)
+    .maybeSingle();
+  if (!target) throw new Error('User not found.');
+
+  const { error } = await admin.from('profiles').update({ active }).eq('id', id);
+  if (error) throw new Error(error.message);
+
+  if (target.user_id) {
+    await admin.auth.admin.updateUserById(target.user_id, {
+      ban_duration: active ? 'none' : '876000h',
+    }).catch(() => {});
+  }
+
+  await audit(active ? 'user_activated' : 'user_disabled', target);
 }
 
 /** Issue a new one-time temporary password for an existing user. */
 export async function resetUserPassword(id: string): Promise<string> {
-  const res = await invokeAdmin<{ temporaryPassword: string }>({
-    action: 'reset_password',
-    profile_id: id,
+  const admin = getAdminClient();
+  const { data: target } = await admin
+    .from('profiles')
+    .select('id, user_id, email, organization_id')
+    .eq('id', id)
+    .maybeSingle();
+  if (!target) throw new Error('User not found.');
+  if (!target.user_id) throw new Error('This user has no authentication account.');
+
+  const temporaryPassword = generatePassword();
+  const { error } = await admin.auth.admin.updateUserById(target.user_id, {
+    password: temporaryPassword,
   });
-  return res.temporaryPassword;
+  if (error) throw new Error(`Password reset failed: ${error.message}`);
+
+  await audit('password_reset', target);
+  return temporaryPassword;
 }
 
 /**
- * Promote a user to Super Admin of an organization. The Edge Function demotes
- * the current Super Admin (if any) to 'admin' and records the change in the
- * audit log. Pass either an existing `profileId` or a freshly created `userId`.
+ * Promote a user to Super Admin of an organization. The admin client demotes
+ * the current Super Admin (if any) to 'admin' and records the change in the audit log.
  */
 export async function assignSuperAdmin(args: {
   organizationId: string;
   profileId?: string;
   userId?: string;
 }): Promise<{ demoted: string[] }> {
-  return invokeAdmin<{ demoted: string[] }>({
-    action: 'assign_super_admin',
-    organization_id: args.organizationId,
-    profile_id: args.profileId,
-    user_id: args.userId,
-  });
+  const admin = getAdminClient();
+  const targetQuery = admin
+    .from('profiles')
+    .select('id, user_id, role, organization_id, email');
+
+  let query = targetQuery;
+  if (args.profileId) query = query.eq('id', args.profileId);
+  else if (args.userId) query = query.eq('user_id', args.userId);
+  else throw new Error('A target user is required.');
+
+  const { data: target } = await query.maybeSingle();
+  if (!target) throw new Error('User not found.');
+
+  const demoted = await demoteOtherSuperAdmins(args.organizationId, target.user_id ?? null);
+  const { error } = await admin.from('profiles').update({ role: 'super_admin' }).eq('id', target.id);
+  if (error) throw new Error(`Assigning Super Admin failed: ${error.message}`);
+
+  await audit('super_admin_assigned', target, { demoted });
+  return { demoted };
 }
 
 // ── Audit log ─────────────────────────────────────────────────────────────────

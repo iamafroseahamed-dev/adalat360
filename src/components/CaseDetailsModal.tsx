@@ -316,6 +316,14 @@ function PartyList({ items }: { items: Array<string | number> | null | undefined
   );
 }
 
+function SourceBadge({ label }: { label: string }) {
+  return (
+    <Badge variant="secondary" className="text-[10px] font-semibold uppercase tracking-[0.12em]">
+      {label}
+    </Badge>
+  );
+}
+
 function StatCard({ label, value }: { label: string; value: number }) {
   return (
     <Card className="bg-gradient-to-br from-slate-50 to-white">
@@ -720,9 +728,9 @@ export function CaseDetailsModal({
         <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
           <div className="relative z-20 shrink-0 border-b border-border/70 bg-background px-4 py-2.5 sm:px-6">
             <TabsList className="flex w-full justify-start gap-1 overflow-x-auto">
-              <TabsTrigger value="overview">Case Information</TabsTrigger>
-              <TabsTrigger value="ecourts">Hearing History</TabsTrigger>
-              <TabsTrigger value="history">Case History</TabsTrigger>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="ecourts">Court Record</TabsTrigger>
+              <TabsTrigger value="history">Timeline</TabsTrigger>
               <TabsTrigger value="ai" className="gap-1.5">
                 <Sparkles className="h-3.5 w-3.5" />
                 AI Insights
@@ -730,6 +738,7 @@ export function CaseDetailsModal({
               <TabsTrigger value="notes">Notes</TabsTrigger>
               <TabsTrigger value="tasks">Tasks</TabsTrigger>
               <TabsTrigger value="connected">Connected Cases</TabsTrigger>
+              <TabsTrigger value="documents">Documents</TabsTrigger>
             </TabsList>
           </div>
 
@@ -737,8 +746,12 @@ export function CaseDetailsModal({
           <TabsContent value="overview" className="mt-0 space-y-6">
         {/* CLA Internal Status — always shown (independent of eCourts data) */}
         {internal && (
-          <InfoCard title="Status">
+          <InfoCard title="Internal Organization Record">
            <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <SourceBadge label="Internal Record" />
+              <p className="text-xs text-muted-foreground">CLA-managed case metadata and advocate progress.</p>
+            </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
                 <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground">Court Status</p>
@@ -747,7 +760,7 @@ export function CaseDetailsModal({
                     ? <Badge variant={String(internal.courtStatus).toLowerCase() === 'pending' ? 'warning' : 'secondary'}>{internal.courtStatus}</Badge>
                     : <span className="text-sm italic text-muted-foreground/60">Not available</span>}
                 </p>
-                <p className="mt-1.5 text-[10px] text-muted-foreground">From court systems (eCourts / MHC)</p>
+                <p className="mt-1.5 text-[10px] text-muted-foreground">Internal case status maintained by CLA operations.</p>
               </div>
               <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
                 <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground">Advocate Status</p>
@@ -756,7 +769,7 @@ export function CaseDetailsModal({
                     ? <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${advocateStatusClasses(internal.advocateStatus)}`}>{internal.advocateStatus}</span>
                     : <span className="text-sm italic text-muted-foreground/60">Not available</span>}
                 </p>
-                <p className="mt-1.5 text-[10px] text-muted-foreground">Internal CLA / advocate progress</p>
+                <p className="mt-1.5 text-[10px] text-muted-foreground">Internal CLA / advocate progress.</p>
               </div>
             </div>
 
@@ -798,24 +811,28 @@ export function CaseDetailsModal({
 
         {!loadingApi && !loadingCached && !error && caseData && (
           <div className="space-y-4">
-            {/* Basic Information */}
-            <InfoCard title="Basic Information">
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
-                <Detail label="Case Type" value={val(deriveCaseType(caseNumber ?? ''))} />
-                <Detail label="Registration Number" value={val(caseData.registrationNumber)} />
-                <Detail label="Registration Date" value={fmtDate(caseData.registrationDate)} />
-                <Detail label="Filing Number" value={val(caseData.filingNumber)} />
-                <Detail label="Filing Date" value={fmtDate(caseData.filingDate)} />
-                <Detail label="Case Status" value={val(caseData.caseStatus)} />
-                <Detail label="Court Name" value={val(caseData.courtName)} />
-                <Detail label="Court Code" value={val(caseData.courtCode)} />
-                <Detail label="Judicial Section" value={val(caseData.judicialSection)} />
-                <Detail label="Case Category" value={val(caseData.caseCategory)} />
-                <Detail label="Bench Type" value={val(caseData.benchType)} />
-              </dl>
+            <InfoCard title="Overview">
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <SourceBadge label="Live Court Data" />
+                  <p className="text-xs text-muted-foreground">Recorded from eCourts case details and hearing feeds.</p>
+                </div>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
+                  <Detail label="Case Type" value={val(deriveCaseType(caseNumber ?? ''))} />
+                  <Detail label="Registration Number" value={val(caseData.registrationNumber)} />
+                  <Detail label="Registration Date" value={fmtDate(caseData.registrationDate)} />
+                  <Detail label="Filing Number" value={val(caseData.filingNumber)} />
+                  <Detail label="Filing Date" value={fmtDate(caseData.filingDate)} />
+                  <Detail label="Case Status" value={val(caseData.caseStatus)} />
+                  <Detail label="Court Name" value={val(caseData.courtName)} />
+                  <Detail label="Court Code" value={val(caseData.courtCode)} />
+                  <Detail label="Judicial Section" value={val(caseData.judicialSection)} />
+                  <Detail label="Case Category" value={val(caseData.caseCategory)} />
+                  <Detail label="Bench Type" value={val(caseData.benchType)} />
+                </dl>
+              </div>
             </InfoCard>
 
-            {/* Parties */}
             <InfoCard title="Parties">
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
@@ -837,12 +854,10 @@ export function CaseDetailsModal({
               </div>
             </InfoCard>
 
-            {/* Judge Information */}
             <InfoCard title="Judge Information">
               <PartyList items={caseData.judges} />
             </InfoCard>
 
-            {/* Hearing Information */}
             <InfoCard title="Hearing Information">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
                 <Detail label="First Hearing Date" value={fmtDate(caseData.firstHearingDate)} />
@@ -852,25 +867,14 @@ export function CaseDetailsModal({
               </dl>
             </InfoCard>
 
-            {/* Statistics */}
             <InfoCard title="Statistics">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                <StatCard label="Hearing Count" value={num(caseData.hearingCount)} />
-                <StatCard label="Order Count" value={num(caseData.orderCount)} />
-                <StatCard label="Interim Order Count" value={num(caseData.interimOrderCount)} />
-                <StatCard label="Judgment Count" value={num(caseData.judgmentCount)} />
-                <StatCard label="IA Count" value={num(caseData.iaCount)} />
+                <StatCard label="Hearings" value={num(caseData.hearingCount)} />
+                <StatCard label="Orders" value={num(caseData.orderCount)} />
+                <StatCard label="Interim Orders" value={num(caseData.interimOrderCount)} />
+                <StatCard label="Judgments" value={num(caseData.judgmentCount)} />
+                <StatCard label="IAs" value={num(caseData.iaCount)} />
               </div>
-            </InfoCard>
-
-            {/* Court Information */}
-            <InfoCard title="Court Information">
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-                <Detail label="Court Code" value={val(caseData.courtCode)} />
-                <Detail label="Court Name" value={val(caseData.courtName)} />
-                <Detail label="State Code" value={val(caseData.stateCode)} />
-                <Detail label="District Code" value={val(caseData.districtCode)} />
-              </dl>
             </InfoCard>
           </div>
         )}
@@ -885,36 +889,75 @@ export function CaseDetailsModal({
           </TabsContent>
 
           <TabsContent value="connected">
-            <CaseConnectionsTab
-              caseId={caseId}
-              orgId={internal?.organizationId ?? null}
-              onOpenCase={(id, number) => setViewCase({ id, number })}
-              onCountChange={n => setSummary(s => (s && s.connections !== n ? { ...s, connections: n } : s))}
-            />
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <SourceBadge label="Internal Record" />
+                <span>Connected cases are stored in the CLA case relationship graph.</span>
+              </div>
+              <CaseConnectionsTab
+                caseId={caseId}
+                orgId={internal?.organizationId ?? null}
+                onOpenCase={(id, number) => setViewCase({ id, number })}
+                onCountChange={n => setSummary(s => (s && s.connections !== n ? { ...s, connections: n } : s))}
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="history">
-            {(loadingApi || loadingCached) ? (
-              <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading case history...
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <SourceBadge label="Live Court Data" />
+                <span>Timeline derived from eCourts case filing and hearing dates.</span>
               </div>
-            ) : caseData ? (
-              <CaseHistorySection caseData={caseData} />
-            ) : (
-              <p className="py-10 text-center text-sm text-muted-foreground">
-                No case history available. Use “Refresh Data” to load from eCourts.
-              </p>
-            )}
+              {(loadingApi || loadingCached) ? (
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading case history...
+                </div>
+              ) : caseData ? (
+                <CaseHistorySection caseData={caseData} />
+              ) : (
+                <p className="py-10 text-center text-sm text-muted-foreground">
+                  No case history available. Use “Refresh Data” to load from eCourts.
+                </p>
+              )}
+            </div>
           </TabsContent>
 
           <TabsContent value="ecourts">
-            <EcourtsHistoryTab caseId={caseId} fallbackCnr={caseData?.cnr} />
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <SourceBadge label="Live Court Data" />
+                <span>Complete hearing history and disposal information from eCourts.</span>
+              </div>
+              <EcourtsHistoryTab caseId={caseId} fallbackCnr={caseData?.cnr} />
+            </div>
           </TabsContent>
 
           <TabsContent value="ai">
-            <AiInsightsTab caseId={caseId} caseNumber={caseNumber} caseData={caseData} />
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <SourceBadge label="AI Generated" />
+                <span>Legal intelligence derived from case data, notes, and tasks.</span>
+              </div>
+              <AiInsightsTab caseId={caseId} caseNumber={caseNumber} caseData={caseData} />
+            </div>
           </TabsContent>
-          </div>
+
+          <TabsContent value="documents">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <SourceBadge label="Internal Record" />
+                <span>Store documents and evidence associated with this case.</span>
+              </div>
+              <div className="rounded-lg border border-dashed border-border/70 bg-muted/50 p-6 text-center">
+                <p className="text-sm font-semibold text-foreground">No documents available</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Document management is not configured for this case yet. Upload case files from the main case record page or contact your administrator to enable document storage.
+                </p>
+              </div>
+            </div>
+          </TabsContent>
+        </div>
         </Tabs>
       </DialogContent>
 
