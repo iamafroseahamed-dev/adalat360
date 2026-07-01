@@ -59,18 +59,20 @@ async function audit(
 ) {
   const session = await supabase.auth.getSession();
   const user = session.data.session?.user;
-  await getAdminClient().from('audit_logs').insert({
-    organization_id: target?.organization_id ?? null,
-    actor_user_id: user?.id ?? null,
-    actor_email: user?.email ?? null,
-    action,
-    target_type: 'user',
-    target_id: target?.id ?? null,
-    target_email: target?.email ?? null,
-    metadata,
-  }).catch(() => {
+  try {
+    await getAdminClient().from('audit_logs').insert({
+      organization_id: target?.organization_id ?? null,
+      actor_user_id: user?.id ?? null,
+      actor_email: user?.email ?? null,
+      action,
+      target_type: 'user',
+      target_id: target?.id ?? null,
+      target_email: target?.email ?? null,
+      metadata,
+    });
+  } catch {
     // Audit failures do not break the primary operation.
-  });
+  }
 }
 
 export interface AppUser {
@@ -298,6 +300,22 @@ export async function resetUserPassword(id: string): Promise<string> {
  * Promote a user to Super Admin of an organization. The admin client demotes
  * the current Super Admin (if any) to 'admin' and records the change in the audit log.
  */
+async function demoteOtherSuperAdmins(organizationId: string | null, excludeUserId: string | null): Promise<string[]> {
+  if (!organizationId) return [];
+  const admin = getAdminClient();
+  const { data: supers, error } = await admin
+    .from('profiles')
+    .select('id, user_id')
+    .eq('organization_id', organizationId)
+    .eq('role', 'super_admin');
+  if (error) throw new Error(error.message);
+  const toDemote = (supers ?? []).filter((r: any) => r.user_id !== excludeUserId).map((r: any) => r.id as string);
+  if (toDemote.length === 0) return [];
+  const { error: updateErr } = await admin.from('profiles').update({ role: 'admin' }).in('id', toDemote);
+  if (updateErr) throw new Error(updateErr.message);
+  return toDemote;
+}
+
 export async function assignSuperAdmin(args: {
   organizationId: string;
   profileId?: string;
