@@ -285,13 +285,13 @@ export default function AboutPage() {
                 {DEVELOPER_EMAIL}
               </a>
               <a
-                href="https://www.afroseahamed.com"
+                href="https://www.tnlegal.com"
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-2 font-medium text-blue-600 underline-offset-2 hover:underline dark:text-blue-400"
               >
                 <Globe className="h-4 w-4" />
-                www.afroseahamed.com
+                www.tnlegal.com
               </a>
             </div>
             <p className="text-sm leading-relaxed text-muted-foreground">
