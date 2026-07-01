@@ -1,14 +1,4 @@
-/**
- * Organizations.tsx — Platform Admin Organization Management console.
- *
- * Platform-admin-only. Provides the full organisation lifecycle: create / edit,
- * activate / deactivate, configure plan & trial credits, recharge credits, assign
- * and transfer Super Admin ownership, and inspect users, advocates, notification
- * recipients, API usage and audit logs through a premium slide-over panel.
- *
- * Super Admins can NEVER reach this page — `canManageOrganizations` is platform
- * admin only, and the server (Edge Function + RLS) is the real boundary.
- */
+
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
